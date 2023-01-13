@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: GPL-2.0
 /* Copyright 2022 Sony Group Corporation */
 #include <sys/prctl.h>
+#include <sys/mman.h>
 #include <test_progs.h>
 #include "bpf_syscall_macro.skel.h"
 
 void test_bpf_syscall_macro(void)
 {
 	struct bpf_syscall_macro *skel = NULL;
-	int err;
+	int err, page_size = getpagesize();
 	int exp_arg1 = 1001;
 	unsigned long exp_arg2 = 12;
 	unsigned long exp_arg3 = 13;
 	unsigned long exp_arg4 = 14;
 	unsigned long exp_arg5 = 15;
+	void *r;
 
 	/* check whether it can open program */
 	skel = bpf_syscall_macro__open();
@@ -33,6 +35,7 @@ void test_bpf_syscall_macro(void)
 
 	/* check whether args of syscall are copied correctly */
 	prctl(exp_arg1, exp_arg2, exp_arg3, exp_arg4, exp_arg5);
+
 #if defined(__aarch64__) || defined(__s390__)
 	ASSERT_NEQ(skel->bss->arg1, exp_arg1, "syscall_arg1");
 #else
@@ -67,6 +70,19 @@ void test_bpf_syscall_macro(void)
 	ASSERT_EQ(skel->bss->arg3_syscall, exp_arg3, "BPF_KPROBE_SYSCALL_arg3");
 	ASSERT_EQ(skel->bss->arg4_syscall, exp_arg4, "BPF_KPROBE_SYSCALL_arg4");
 	ASSERT_EQ(skel->bss->arg5_syscall, exp_arg5, "BPF_KPROBE_SYSCALL_arg5");
+
+	r = mmap((void *)0x12340000, 3 * page_size, PROT_READ | PROT_WRITE,
+		 MAP_PRIVATE, -42, 5 * page_size);
+	err = -errno;
+	ASSERT_EQ(r, MAP_FAILED, "mmap_res");
+	ASSERT_EQ(err, -EBADF, "mmap_err");
+
+	ASSERT_EQ(skel->bss->mmap_addr, 0x12340000, "mmap_arg1");
+	ASSERT_EQ(skel->bss->mmap_length, 3 * page_size, "mmap_arg2");
+	ASSERT_EQ(skel->bss->mmap_prot, PROT_READ | PROT_WRITE, "mmap_arg3");
+	ASSERT_EQ(skel->bss->mmap_flags, MAP_PRIVATE, "mmap_arg4");
+	ASSERT_EQ(skel->bss->mmap_fd, -42, "mmap_arg5");
+	ASSERT_EQ(skel->bss->mmap_offset, 5 * page_size, "mmap_arg6");
 
 cleanup:
 	bpf_syscall_macro__destroy(skel);
