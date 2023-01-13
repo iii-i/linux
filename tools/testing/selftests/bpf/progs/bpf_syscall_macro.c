@@ -81,4 +81,30 @@ int BPF_KSYSCALL(prctl_enter, int option, unsigned long arg2,
 	return 0;
 }
 
+__u64 mmap_addr;
+__u64 mmap_length;
+__u64 mmap_prot;
+__u64 mmap_flags;
+__u64 mmap_fd;
+__u64 mmap_offset;
+
+SEC("ksyscall/mmap")
+int BPF_KSYSCALL(mmap_enter, void *addr, size_t length, int prot, int flags,
+		 int fd, off_t offset)
+{
+	pid_t pid = bpf_get_current_pid_tgid() >> 32;
+
+	if (pid != filter_pid)
+		return 0;
+
+	mmap_addr = (__u64)addr;
+	mmap_length = length;
+	mmap_prot = prot;
+	mmap_flags = flags;
+	mmap_fd = fd;
+	mmap_offset = offset;
+
+	return 0;
+}
+
 char _license[] SEC("license") = "GPL";
