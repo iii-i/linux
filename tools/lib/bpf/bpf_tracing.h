@@ -474,24 +474,6 @@ struct pt_regs;
  * conventions within each architecutre. All supported architectures pass
  * either 6 or 7 syscall arguments in registers.
  */
-#ifndef __PT_PARM1_SYSCALL_REG
-#define __PT_PARM1_SYSCALL_REG __PT_PARM1_REG
-#endif
-#ifndef __PT_PARM2_SYSCALL_REG
-#define __PT_PARM2_SYSCALL_REG __PT_PARM2_REG
-#endif
-#ifndef __PT_PARM3_SYSCALL_REG
-#define __PT_PARM3_SYSCALL_REG __PT_PARM3_REG
-#endif
-#ifndef __PT_PARM4_SYSCALL_REG
-#define __PT_PARM4_SYSCALL_REG __PT_PARM4_REG
-#endif
-#ifndef __PT_PARM5_SYSCALL_REG
-#define __PT_PARM5_SYSCALL_REG __PT_PARM5_REG
-#endif
-#ifndef __PT_PARM6_SYSCALL_REG
-#define __PT_PARM6_SYSCALL_REG __PT_PARM6_REG
-#endif
 #ifndef __PT_PARM7_SYSCALL_REG
 #define __PT_PARM7_SYSCALL_REG __unsupported__
 #endif
