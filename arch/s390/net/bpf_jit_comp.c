@@ -1859,3 +1859,33 @@ out:
 					   tmp : orig_fp);
 	return fp;
 }
+
+int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type t,
+		       void *old_addr, void *new_addr)
+{
+	struct {
+		u16 opc;
+		u32 disp;
+	} __packed insn;
+	int err;
+
+	switch (t) {
+	case BPF_MOD_JUMP:
+		if (old_addr)
+			return -EINVAL;
+		if (!new_addr)
+			return -EINVAL;
+		err = copy_from_kernel_nofault(&insn, ip, sizeof(insn));
+		if (err < 0)
+			return err;
+		if (insn.opc != 0xc004)
+			return -EINVAL;
+		if (insn.disp != ((char *)new_addr - (char *)ip) >> 1)
+			return -EINVAL;
+		insn.opc = 0xc0f4;
+		s390_kernel_write((char *)ip + 1, (char *)&insn + 1, 1);
+		return 0;
+	default:
+		return -ENOTSUPP;
+	}
+}
