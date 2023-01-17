@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: GPL-2.0
 /* Copyright 2022 Sony Group Corporation */
+#define _GNU_SOURCE
+#include <fcntl.h>
 #include <sys/prctl.h>
-#include <sys/mman.h>
 #include <test_progs.h>
 #include "bpf_syscall_macro.skel.h"
 
 void test_bpf_syscall_macro(void)
 {
 	struct bpf_syscall_macro *skel = NULL;
-	int err, page_size = getpagesize();
+	int err;
 	int exp_arg1 = 1001;
 	unsigned long exp_arg2 = 12;
 	unsigned long exp_arg3 = 13;
 	unsigned long exp_arg4 = 14;
 	unsigned long exp_arg5 = 15;
-	void *r;
+	loff_t off_in, off_out;
+	ssize_t r;
 
 	/* check whether it can open program */
 	skel = bpf_syscall_macro__open();
@@ -71,18 +73,17 @@ void test_bpf_syscall_macro(void)
 	ASSERT_EQ(skel->bss->arg4_syscall, exp_arg4, "BPF_KPROBE_SYSCALL_arg4");
 	ASSERT_EQ(skel->bss->arg5_syscall, exp_arg5, "BPF_KPROBE_SYSCALL_arg5");
 
-	r = mmap((void *)0x12340000, 3 * page_size, PROT_READ | PROT_WRITE,
-		 MAP_PRIVATE, -42, 5 * page_size);
+	r = splice(-42, &off_in, 42, &off_out, 0x12340000, SPLICE_F_NONBLOCK);
 	err = -errno;
-	ASSERT_EQ(r, MAP_FAILED, "mmap_res");
-	ASSERT_EQ(err, -EBADF, "mmap_err");
+	ASSERT_EQ(r, -1, "splice_res");
+	ASSERT_EQ(err, -EBADF, "splice_err");
 
-	ASSERT_EQ(skel->bss->mmap_addr, 0x12340000, "mmap_arg1");
-	ASSERT_EQ(skel->bss->mmap_length, 3 * page_size, "mmap_arg2");
-	ASSERT_EQ(skel->bss->mmap_prot, PROT_READ | PROT_WRITE, "mmap_arg3");
-	ASSERT_EQ(skel->bss->mmap_flags, MAP_PRIVATE, "mmap_arg4");
-	ASSERT_EQ(skel->bss->mmap_fd, -42, "mmap_arg5");
-	ASSERT_EQ(skel->bss->mmap_offset, 5 * page_size, "mmap_arg6");
+	ASSERT_EQ(skel->bss->splice_fd_in, -42, "splice_arg1");
+	ASSERT_EQ(skel->bss->splice_off_in, (__u64)&off_in, "splice_arg2");
+	ASSERT_EQ(skel->bss->splice_fd_out, 42, "splice_arg3");
+	ASSERT_EQ(skel->bss->splice_off_out, (__u64)&off_out, "splice_arg4");
+	ASSERT_EQ(skel->bss->splice_len, 0x12340000, "splice_arg5");
+	ASSERT_EQ(skel->bss->splice_flags, SPLICE_F_NONBLOCK, "splice_arg6");
 
 cleanup:
 	bpf_syscall_macro__destroy(skel);
