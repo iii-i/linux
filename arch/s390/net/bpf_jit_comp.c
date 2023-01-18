@@ -1949,17 +1949,16 @@ struct bpf_tramp_jit {
 	int orig_stack_args_off;/* Offset of arguments placed on stack by the
 				 * func_addr's original caller */
 	int stack_size;		/* Trampoline stack size */
-	int fwd_stack_args_off; /* Offset of stack arguments for calling
+	int stack_args_off;	/* Offset of stack arguments for calling
 				 * func_addr, has to be at the top */
+	int reg_args_off;	/* Offset of register arguments for calling
+				 * func_addr */
 	int ip_off;		/* For bpf_get_func_ip(), has to be at
 				 * (ctx - 16) */
 	int arg_cnt_off;	/* For bpf_get_func_arg_cnt(), has to be at
 				 * (ctx - 8) */
-	int reg_args_off;	/* Offset of BPF_PROG context, which consists
-				 * of nr_args arguments followed by the return
-				 * value */
-	int stack_args_off;	/* Offset of stack arguments in BPF_PROG
-				 * context (see above) */
+	int bpf_args_off;	/* Offset of BPF_PROG context, which consists
+				 * of BPF arguments followed by return value */
 	int retval_off;		/* Offset of return value (see above) */
 	int r7_r8_off;		/* Offset of saved %r7 and %r8, which are used
 				 * for __bpf_prog_enter() return value and
@@ -2019,8 +2018,8 @@ static void invoke_bpf_prog(struct bpf_tramp_jit *tjit,
 
 	/* %r1 = p->bpf_func */
 	load_imm64(jit, REG_1, (u64)p->bpf_func);
-	/* la %r2,reg_args_off(%r15) */
-	EMIT4_DISP(0x41000000, REG_2, REG_15, tjit->reg_args_off);
+	/* la %r2,bpf_args_off(%r15) */
+	EMIT4_DISP(0x41000000, REG_2, REG_15, tjit->bpf_args_off);
 	/* %r3 = p->insnsi */
 	if (!p->jited)
 		load_imm64(jit, REG_3, (u64)p->insnsi);
@@ -2078,32 +2077,48 @@ int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	struct bpf_tramp_links *fmod_ret = &tlinks[BPF_TRAMP_MODIFY_RETURN];
 	struct bpf_tramp_links *fentry = &tlinks[BPF_TRAMP_FENTRY];
 	struct bpf_tramp_links *fexit = &tlinks[BPF_TRAMP_FEXIT];
+	int nr_bpf_args, nr_reg_args, nr_stack_args;
 	struct bpf_jit *jit = &tjit->common;
-	int *fmod_ret_patches = NULL;
-	int mvc_l_stack_args;
-	int nr_stack_args;
-	int nr_reg_args;
-	int i;
+	int *fmod_ret_patches;
+	int arg, bpf_arg_off;
+	int i, j;
+
+	/* Support as many stack arguments as "mvc" instruction can handle. */
+	nr_reg_args = min((int)m->nr_args, MAX_NR_REG_ARGS);
+	nr_stack_args = m->nr_args - nr_reg_args;
+	if (nr_stack_args > MAX_NR_STACK_ARGS)
+		return -ENOTSUPP;
 
 	/* Return to %r14, since func_addr and %r0 are not available. */
 	if (!func_addr && !(flags & BPF_TRAMP_F_ORIG_STACK))
 		flags |= BPF_TRAMP_F_SKIP_FRAME;
 
-	/* Support a limited number of stack arguments. */
-	nr_reg_args = min((int)m->nr_args, MAX_NR_REG_ARGS);
-	nr_stack_args = m->nr_args - nr_reg_args;
-	if (nr_stack_args > MAX_NR_STACK_ARGS)
-		return -ENOTSUPP;
-	mvc_l_stack_args = (nr_stack_args * sizeof(u64) - 1) << 16;
+	/*
+	 * Compute how many arguments we need to pass to BPF programs.
+	 * BPF ABI mirrors that of x86_64: arguments that are 16 bytes or less
+	 * are packed into 1 or 2 registers; larger arguments are passed via
+	 * pointers.
+	 * In s390x ABI, arguments that are 8 bytes or less are packed into a
+	 * register; larger arguments are passed via pointers.
+	 * We need to deal with this difference.
+	 */
+	nr_bpf_args = 0;
+	for (i = 0; i < m->nr_args; i++) {
+		if (m->arg_size[i] <= 8)
+			nr_bpf_args += 1;
+		else if (m->arg_size[i] <= 16)
+			nr_bpf_args += 2;
+		else
+			return -ENOTSUPP;
+	}
 
 	/* Calculate stack layout. */
 	tjit->stack_size = STACK_FRAME_OVERHEAD;
-	tjit->fwd_stack_args_off = alloc_stack(tjit,
-					       nr_stack_args * sizeof(u64));
+	tjit->stack_args_off = alloc_stack(tjit, nr_stack_args * sizeof(u64));
+	tjit->reg_args_off = alloc_stack(tjit, nr_reg_args * sizeof(u64));
 	tjit->ip_off = alloc_stack(tjit, sizeof(u64));
 	tjit->arg_cnt_off = alloc_stack(tjit, sizeof(u64));
-	tjit->reg_args_off = alloc_stack(tjit, nr_reg_args * sizeof(u64));
-	tjit->stack_args_off = alloc_stack(tjit, nr_stack_args * sizeof(u64));
+	tjit->bpf_args_off = alloc_stack(tjit, nr_bpf_args * sizeof(u64));
 	tjit->retval_off = alloc_stack(tjit, sizeof(u64));
 	tjit->r7_r8_off = alloc_stack(tjit, 2 * sizeof(u64));
 	tjit->r14_off = alloc_stack(tjit, sizeof(u64));
@@ -2113,15 +2128,43 @@ int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 
 	/* aghi %r15,-stack_size */
 	EMIT4_IMM(0xa70b0000, REG_15, -tjit->stack_size);
-	/* stmg %r2,%rN,reg_args_off(%r15) */
+	/* stmg %r2,%rN,fwd_reg_args_off(%r15) */
 	if (nr_reg_args)
 		EMIT6_DISP_LH(0xeb000000, 0x0024, REG_2,
 			      REG_2 + (nr_reg_args - 1), REG_15,
 			      tjit->reg_args_off);
-	/* mvc stack_args_off(N,%r15),orig_stack_args_off(%r15) */
-	if (nr_stack_args)
-		_EMIT6(0xd200f000 | mvc_l_stack_args | tjit->stack_args_off,
-		       0xf000 | tjit->orig_stack_args_off);
+	for (i = 0, j = 0; i < m->nr_args; i++) {
+		if (i < MAX_NR_REG_ARGS)
+			arg = REG_2 + i;
+		else
+			arg = tjit->orig_stack_args_off +
+			      (i - MAX_NR_REG_ARGS) * sizeof(u64);
+		bpf_arg_off = tjit->bpf_args_off + j * sizeof(u64);
+		if (m->arg_size[i] <= 8) {
+			if (i < MAX_NR_REG_ARGS)
+				/* stg %arg,bpf_arg_off(%r15) */
+				EMIT6_DISP_LH(0xe3000000, 0x0024, arg,
+					      REG_0, REG_15, bpf_arg_off);
+			else
+				/* mvc bpf_arg_off(8,%r15),arg(%r15) */
+				_EMIT6(0xd207f000 | bpf_arg_off,
+				       0xf000 | arg);
+			j += 1;
+		} else {
+			if (i < MAX_NR_REG_ARGS) {
+				/* mvc bpf_arg_off(16,%r15),0(%arg) */
+				_EMIT6(0xd20ff000 | bpf_arg_off,
+				       reg2hex[arg] << 12);
+			} else {
+				/* lg %r1,arg(%r15) */
+				EMIT6_DISP_LH(0xe3000000, 0x0004, REG_1, REG_0,
+					      REG_15, arg);
+				/* mvc bpf_arg_off(16,%r15),0(%r1) */
+				_EMIT6(0xd20ff000 | bpf_arg_off, 0x1000);
+			}
+			j += 2;
+		}
+	}
 	/* stmg %r7,%r8,r7_r8_off(%r15) */
 	EMIT6_DISP_LH(0xeb000000, 0x0024, REG_7, REG_8, REG_15,
 		      tjit->r7_r8_off);
@@ -2130,8 +2173,9 @@ int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 
 	if (flags & BPF_TRAMP_F_ORIG_STACK) {
 		/*
-		 * The ftrace trampoline puts the original function address
-		 * into %r0, see ftrace_shared_hotpatch_trampoline_br and
+		 * The ftrace trampoline puts the return address (which is the
+		 * address of the original function + S390X_PATCH_SIZE) into
+		 * %r0; see ftrace_shared_hotpatch_trampoline_br and
 		 * ftrace_init_nop() for details.
 		 */
 
@@ -2154,8 +2198,8 @@ int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 		EMIT6_DISP_LH(0xe3000000, 0x0024, REG_0, REG_0, REG_15,
 			      tjit->ip_off);
 	}
-	/* lghi %r0,m->nr_args */
-	EMIT4_IMM(0xa7090000, REG_0, m->nr_args);
+	/* lghi %r0,nr_bpf_args */
+	EMIT4_IMM(0xa7090000, REG_0, nr_bpf_args);
 	/* stg %r0,arg_cnt_off(%r15) */
 	EMIT6_DISP_LH(0xe3000000, 0x0024, REG_0, REG_0, REG_15,
 		      tjit->arg_cnt_off);
@@ -2205,7 +2249,7 @@ int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 			EMIT6_DISP_LH(0xe3000000, 0x0002, REG_0, REG_0, REG_15,
 				      tjit->retval_off);
 			/* brcl 7,do_fexit */
-			if (fmod_ret_patches)
+			if (jit->prg_buf)
 				fmod_ret_patches[i] = jit->prg;
 			EMIT6_PCREL_RILC(0xc0040000, 7, 0);
 		}
@@ -2213,20 +2257,20 @@ int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 
 	if (flags & BPF_TRAMP_F_CALL_ORIG) {
 		/*
-		 * retval = func_addr(saved_args);
+		 * retval = func_addr(args);
 		 */
 
-		/* lmg %r2,%rN,regs_off(%r15) */
+		/* lmg %r2,%rN,reg_args_off(%r15) */
 		if (nr_reg_args)
 			EMIT6_DISP_LH(0xeb000000, 0x0004, REG_2,
 				      REG_2 + (nr_reg_args - 1), REG_15,
 				      tjit->reg_args_off);
-		/* mvc fwd_stack_args_off(N,%r15),stack_args_off(%r15) */
+		/* mvc stack_args_off(N,%r15),orig_stack_args_off(%r15) */
 		if (nr_stack_args)
 			_EMIT6(0xd200f000 |
-				       mvc_l_stack_args |
-				       tjit->fwd_stack_args_off,
-			       0xf000 | tjit->stack_args_off);
+				       (nr_stack_args * sizeof(u64) - 1) << 16 |
+				       tjit->stack_args_off,
+			       0xf000 | tjit->orig_stack_args_off);
 		/* basr %r14,%r8 */
 		EMIT2(0x0d00, REG_14, REG_8);
 		/* stg %r2,retval_off(%r15) */
@@ -2244,7 +2288,7 @@ int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	}
 
 	/* do_fexit: */
-	if (fmod_ret_patches) {
+	if (fmod_ret->nr_links && jit->prg_buf) {
 		for (i = 0; i < fmod_ret->nr_links; i++)
 			*(u32 *)&jit->prg_buf[fmod_ret_patches[i] + 2] =
 				(jit->prg - fmod_ret_patches[i]) >> 1;
