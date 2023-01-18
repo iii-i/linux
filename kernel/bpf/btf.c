@@ -6456,6 +6456,7 @@ int btf_distill_func_proto(struct bpf_verifier_log *log,
 	const struct btf_param *args;
 	const struct btf_type *t;
 	u32 i, nargs;
+	u8 flags;
 	int ret;
 
 	if (!func) {
@@ -6510,7 +6511,14 @@ int btf_distill_func_proto(struct bpf_verifier_log *log,
 			return -EINVAL;
 		}
 		m->arg_size[i] = ret;
-		m->arg_flags[i] = __btf_type_is_struct(t) ? BTF_FMODEL_STRUCT_ARG : 0;
+
+		flags = 0;
+		if (__btf_type_is_struct(t))
+			flags |= BTF_FMODEL_STRUCT_ARG;
+		if (btf_type_is_int(t) &&
+		    (btf_int_encoding(t) & BTF_INT_SIGNED))
+			flags |= BTF_FMODEL_SIGNED_ARG;
+		m->arg_flags[i] = flags;
 	}
 	m->nr_args = nargs;
 	return 0;
