@@ -2158,11 +2158,11 @@ int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 
 	/*
 	 * Compute how many arguments we need to pass to BPF programs.
-	 * BPF ABI mirrors that of x86_64: arguments that are 16 bytes or less
-	 * are packed into 1 or 2 registers; larger arguments are passed via
-	 * pointers.
-	 * In s390x ABI, arguments that are 8 bytes or less are packed into a
-	 * register; larger arguments are passed via pointers.
+	 * BPF ABI mirrors that of x86_64: arguments that are 16 bytes or
+	 * smaller are packed into 1 or 2 registers; larger arguments are
+	 * passed via pointers.
+	 * In s390x ABI, arguments that are 8 bytes or smaller are packed into
+	 * a register; larger arguments are passed via pointers.
 	 * We need to deal with this difference.
 	 */
 	nr_bpf_args = 0;
@@ -2175,7 +2175,11 @@ int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 			return -ENOTSUPP;
 	}
 
-	/* Calculate stack layout. */
+	/*
+	 * Calculate the stack layout.
+	 */
+
+	/* Reserve STACK_FRAME_OVERHEAD bytes for the callees. */
 	tjit->stack_size = STACK_FRAME_OVERHEAD;
 	tjit->stack_args_off = alloc_stack(tjit, nr_stack_args * sizeof(u64));
 	tjit->reg_args_off = alloc_stack(tjit, nr_reg_args * sizeof(u64));
@@ -2187,6 +2191,8 @@ int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	tjit->r14_off = alloc_stack(tjit, sizeof(u64));
 	tjit->run_ctx_off = alloc_stack(tjit,
 					sizeof(struct bpf_tramp_run_ctx));
+	/* The caller has already reserved STACK_FRAME_OVERHEAD bytes. */
+	tjit->stack_size -= STACK_FRAME_OVERHEAD;
 	tjit->orig_stack_args_off = tjit->stack_size + STACK_FRAME_OVERHEAD;
 
 	/* aghi %r15,-stack_size */
