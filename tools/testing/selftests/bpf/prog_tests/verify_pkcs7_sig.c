@@ -56,11 +56,17 @@ struct data {
 	__u32 sig_len;
 };
 
+static char libbpf_log[8192];
 static bool kfunc_not_supported;
 
 static int libbpf_print_cb(enum libbpf_print_level level, const char *fmt,
 			   va_list args)
 {
+	size_t log_len = strlen(libbpf_log);
+
+	vsnprintf(libbpf_log + log_len, sizeof(libbpf_log) - log_len,
+		  fmt, args);
+
 	if (strcmp(fmt, "libbpf: extern (func ksym) '%s': not found in kernel or module BTFs\n"))
 		return 0;
 
@@ -277,6 +283,7 @@ void test_verify_pkcs7_sig(void)
 	if (!ASSERT_OK_PTR(skel, "test_verify_pkcs7_sig__open"))
 		goto close_prog;
 
+	libbpf_log[0] = 0;
 	old_print_cb = libbpf_set_print(libbpf_print_cb);
 	ret = test_verify_pkcs7_sig__load(skel);
 	libbpf_set_print(old_print_cb);
@@ -288,6 +295,8 @@ void test_verify_pkcs7_sig(void)
 		test__skip();
 		goto close_prog;
 	}
+
+	printf("%s", libbpf_log);
 
 	if (!ASSERT_OK(ret, "test_verify_pkcs7_sig__load"))
 		goto close_prog;
