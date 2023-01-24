@@ -30,6 +30,7 @@
 #include <asm/facility.h>
 #include <asm/nospec-branch.h>
 #include <asm/set_memory.h>
+#include <asm/text-patching.h>
 #include "bpf_jit.h"
 
 struct bpf_jit {
@@ -2003,6 +2004,9 @@ int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type t,
 	/* Adjust the mask of the branch. */
 	insn.opc = 0xc004 | (new_addr ? 0xf0 : 0);
 	s390_kernel_write((char *)ip + 1, (char *)&insn.opc + 1, 1);
+
+	/* Make the new code visible to the other CPUs. */
+	text_poke_sync_lock();
 
 	return 0;
 }
