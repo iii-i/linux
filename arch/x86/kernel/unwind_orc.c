@@ -465,7 +465,7 @@ static bool get_reg(struct unwind_state *state, unsigned int reg_off,
 	return false;
 }
 
-bool unwind_next_frame(struct unwind_state *state)
+__no_kmsan_checks bool unwind_next_frame(struct unwind_state *state)
 {
 	unsigned long ip_p, sp, tmp, orig_ip = state->ip, prev_sp = state->sp;
 	enum stack_type prev_type = state->stack_info.type;
