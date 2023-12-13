@@ -14,6 +14,7 @@
 #include <linux/stop_machine.h>
 #include <linux/slab.h>
 #include <linux/kdebug.h>
+#include <linux/kmsan.h>
 #include <linux/kprobes.h>
 #include <linux/mmu_context.h>
 #include <linux/bsearch.h>
@@ -1841,7 +1842,9 @@ static void *__text_poke(text_poke_f func, void *addr, const void *src, size_t l
 	prev = use_temporary_mm(poking_mm);
 
 	kasan_disable_current();
+	kmsan_disable_current();
 	func((u8 *)poking_addr + offset_in_page(addr), src, len);
+	kmsan_enable_current();
 	kasan_enable_current();
 
 	/*
