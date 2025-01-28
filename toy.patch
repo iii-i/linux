@@ -1,0 +1,11 @@
+--- a/drivers/s390/char/toy.c
++++ b/drivers/s390/char/toy.c
+@@ -6,7 +6,7 @@
+ #include <linux/string.h>
+ 
+ void *patchme(void);
+-void *patchme(void) { return patchme; }
++void *patchme(void) { printk(KERN_NOTICE "patched\n"); return patchme; }
+ 
+ static ssize_t sysfs_write(struct kobject *kobj, struct kobj_attribute *attr,
+                            const char *buf, size_t count)
