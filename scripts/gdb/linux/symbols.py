@@ -49,6 +49,22 @@ if hasattr(gdb, 'Breakpoint'):
             return False
 
 
+    class LoadBpfBreakpoint(gdb.Breakpoint):
+        def __init__(self, spec, gdb_command):
+            super(LoadBpfBreakpoint, self).__init__(spec, internal=True)
+            self.silent = True
+            self.gdb_command = gdb_command
+
+        def stop(self):
+            prog = gdb.parse_and_eval("prog")
+            name_value = prog["aux"]["name"]
+            name = name_value.bytes.rstrip(b"\x00").decode()
+            if len(name) > 0:
+                addr = int(prog["bpf_func"])
+                self.gdb_command.load_bpf_symbol(name, addr)
+            return False
+
+
 def get_vmcore_s390():
     with utils.qemu_phy_mem_mode():
         vmcore_info = 0x0e0c
@@ -97,6 +113,7 @@ lx-symbols command."""
     module_files_updated = False
     loaded_modules = []
     breakpoint = None
+    bpf_breakpoint = None
 
     def __init__(self):
         super(LxSymbols, self).__init__("lx-symbols", gdb.COMMAND_FILES,
@@ -203,6 +220,15 @@ lx-symbols command."""
         for saved_state in saved_states:
             saved_state['breakpoint'].enabled = saved_state['enabled']
 
+    def load_bpf_symbol(self, name, addr):
+        with utils.generate_obj(name) as obj:
+            with utils.pagination_off():
+                gdb.write("loading @{addr}: {name}\n".format(
+                    addr=hex(addr), name=name))
+                cmdline = "add-symbol-file {filename} {addr}".format(
+                    filename=obj, addr=hex(addr))
+                gdb.execute(cmdline, to_string=True)
+
     def invoke(self, arg, from_tty):
         self.module_paths = [os.path.abspath(os.path.expanduser(p))
                              for p in arg.split()]
@@ -223,6 +249,11 @@ lx-symbols command."""
                 self.breakpoint = None
             self.breakpoint = LoadModuleBreakpoint(
                 "kernel/module/main.c:do_init_module", self)
+            if self.bpf_breakpoint is not None:
+                self.bpf_breakpoint.delete()
+                self.bpf_breakpoint = None
+            self.bpf_breakpoint = LoadBpfBreakpoint(
+                "kernel/bpf/core.c:bpf_prog_fill_jited_linfo", self)
         else:
             gdb.write("Note: symbol update on module loading not supported "
                       "with this gdb version\n")

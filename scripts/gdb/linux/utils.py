@@ -14,6 +14,8 @@
 import contextlib
 import dataclasses
 import re
+import subprocess
+import tempfile
 import typing
 
 import gdb
@@ -271,3 +273,13 @@ def pagination_off():
         yield
     finally:
         gdb.execute("set pagination %s" % ("on" if pagination else "off"))
+
+
+@contextlib.contextmanager
+def generate_obj(name):
+    with tempfile.NamedTemporaryFile(suffix=".o", mode="wb") as obj:
+        with tempfile.NamedTemporaryFile(suffix=".s", mode="w") as src:
+            src.write(name + ":\n")
+            src.flush()
+            subprocess.check_call(["as", "-c", src.name, "-o", obj.name])
+        yield obj.name
