@@ -7,7 +7,7 @@
 #include <bpf/bpf_helpers.h>
 #include "bpf_atomic.h"
 
-#define arch_mcs_spin_lock_contended_label(l, label) smp_cond_load_acquire_label(l, VAL, label)
+#define arch_mcs_spin_lock_contended_label(l, label) (void)smp_cond_load_acquire_label(l, VAL, label)
 #define arch_mcs_spin_unlock_contended(l) smp_store_release((l), 1)
 
 #if defined(ENABLE_ATOMICS_TESTS) && defined(__BPF_FEATURE_ADDR_SPACE_CAST)
@@ -302,7 +302,7 @@ int arena_spin_lock_slowpath(arena_spinlock_t __arena __arg_arena *lock, u32 val
 	 * barriers.
 	 */
 	if (val & _Q_LOCKED_MASK)
-		smp_cond_load_acquire_label(&lock->locked, !VAL, release_err);
+		(void)smp_cond_load_acquire_label(&lock->locked, !VAL, release_err);
 
 	/*
 	 * take ownership and clear the pending bit.
