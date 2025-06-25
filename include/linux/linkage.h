@@ -73,8 +73,6 @@
 #define __ALIGN_STR		__stringify(__ALIGN)
 #endif
 
-#ifdef __ASSEMBLY__
-
 /* SYM_T_FUNC -- type used by assembler to mark functions */
 #ifndef SYM_T_FUNC
 #define SYM_T_FUNC				STT_FUNC
@@ -98,6 +96,8 @@
 #define SYM_L_GLOBAL(name)			.globl name
 #define SYM_L_WEAK(name)			.weak name
 #define SYM_L_LOCAL(name)			/* nothing */
+
+#ifdef __ASSEMBLY__
 
 #ifndef LINKER_SCRIPT
 #define ALIGN __ALIGN
@@ -140,6 +140,8 @@
 	SYM_FUNC_END(name)
 #endif
 #endif /* CONFIG_ARCH_USE_SYM_ANNOTATIONS */
+
+#endif /* __ASSEMBLY__ */
 
 /* === generic annotations === */
 
@@ -350,7 +352,5 @@
 	data ASM_NL						\
 	SYM_DATA_END(name)
 #endif
-
-#endif /* __ASSEMBLY__ */
 
 #endif /* _LINUX_LINKAGE_H */
