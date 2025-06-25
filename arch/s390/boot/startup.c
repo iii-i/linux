@@ -2,6 +2,7 @@
 #define boot_fmt(fmt) "startup: " fmt
 #include <linux/string.h>
 #include <linux/elf.h>
+#include <linux/linkage.h>
 #include <asm/page-states.h>
 #include <asm/boot_data.h>
 #include <asm/extmem.h>
@@ -642,5 +643,6 @@ void startup_kernel(void)
 	psw.addr = __kaslr_offset + vmlinux.entry;
 	psw.mask = PSW_KERNEL_BITS;
 	boot_debug("Starting kernel at:  0x%016lx\n", psw.addr);
+	asm volatile(__stringify(SYM_INNER_LABEL(leave_decompressor, SYM_L_GLOBAL)));
 	__load_psw(psw);
 }

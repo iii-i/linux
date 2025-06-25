@@ -107,6 +107,8 @@ extern unsigned char _compressed_start[];
 extern unsigned char _compressed_end[];
 extern struct vmlinux_info _vmlinux_info;
 
+extern char leave_decompressor[];
+
 #define vmlinux _vmlinux_info
 
 #define __lowcore_pa(x)		((unsigned long)(x) % sizeof(struct lowcore))
