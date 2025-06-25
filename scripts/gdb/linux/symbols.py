@@ -100,6 +100,30 @@ def get_kerneloffset():
     return None
 
 
+def is_in_s390_decompressor():
+    # DAT is always off in decompressor. Use this as an indicator.
+    # Note that in the kernel, DAT can be off during kexec() or restart.
+    # Accept this imprecision in order to avoid complicating things.
+    # It is unlikely that someone will run lx-symbols at these points.
+    pswm = int(gdb.parse_and_eval("$pswm"))
+    return (pswm & 0x0400000000000000) == 0
+
+
+def skip_decompressor():
+    if utils.is_target_arch("s390"):
+        if is_in_s390_decompressor():
+            # The address of the leave_decompressor label is statically placed
+            # into svc_old_psw.addr (see ipl_data.c); read it from there. DAT
+            # is off, so we do not need to care about lowcore relocation.
+            svc_old_pswa = 0x148
+            leave_label = int(gdb.parse_and_eval("*(unsigned long long *)" +
+                                                 hex(svc_old_pswa)))
+            gdb.execute("tbreak *" + hex(leave_label))
+            gdb.execute("continue")
+            while is_in_s390_decompressor():
+                gdb.execute("stepi")
+
+
 class LxSymbols(gdb.Command):
     """(Re-)load symbols of Linux kernel and currently loaded modules.
 
@@ -230,6 +254,8 @@ lx-symbols command."""
                 gdb.execute(cmdline, to_string=True)
 
     def invoke(self, arg, from_tty):
+        skip_decompressor()
+
         self.module_paths = [os.path.abspath(os.path.expanduser(p))
                              for p in arg.split()]
         self.module_paths.append(os.getcwd())
