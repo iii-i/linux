@@ -380,6 +380,12 @@ bool proc_ns_file(const struct file *file)
 	return file->f_op == &ns_file_operations;
 }
 
+void ns_get_dev_ino(const struct ns_common *ns, dev_t *dev, ino_t *ino)
+{
+	*dev = nsfs_mnt->mnt_sb->s_dev;
+	*ino = ns->inum;
+}
+
 /**
  * ns_match() - Returns true if current namespace matches dev/ino provided.
  * @ns: current namespace

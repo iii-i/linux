@@ -66,5 +66,7 @@ static inline void proc_free_inum(unsigned int inum) {}
 #endif /* CONFIG_PROC_FS */
 
 #define get_proc_ns(inode) ((struct ns_common *)(inode)->i_private)
+extern void ns_get_dev_ino(const struct ns_common *ns,
+			   dev_t *dev, ino_t *ino);
 
 #endif /* _LINUX_PROC_NS_H */
