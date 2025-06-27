@@ -1708,6 +1708,7 @@ static inline unsigned int perf_guest_handle_intel_pt_intr(void) { return 0; }
 extern void perf_event_exec(void);
 extern void perf_event_comm(struct task_struct *tsk, bool exec);
 extern void perf_event_namespaces(struct task_struct *tsk);
+extern void perf_event_nspid(struct task_struct *tsk);
 extern void perf_event_fork(struct task_struct *tsk);
 extern void perf_event_text_poke(const void *addr,
 				 const void *old_bytes, size_t old_len,
@@ -1978,6 +1979,7 @@ static inline void perf_event_bpf_event(struct bpf_prog *prog,
 static inline void perf_event_exec(void)				{ }
 static inline void perf_event_comm(struct task_struct *tsk, bool exec)	{ }
 static inline void perf_event_namespaces(struct task_struct *tsk)	{ }
+static inline void perf_event_nspid(struct task_struct *tsk)		{ }
 static inline void perf_event_fork(struct task_struct *tsk)		{ }
 static inline void perf_event_text_poke(const void *addr,
 					const void *old_bytes,

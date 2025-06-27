@@ -463,7 +463,8 @@ struct perf_event_attr {
 				inherit_thread :  1, /* children only inherit if cloned with CLONE_THREAD */
 				remove_on_exec :  1, /* event is removed from task on exec */
 				sigtrap        :  1, /* send synchronous SIGTRAP on event */
-				__reserved_1   : 26;
+				nspid          :  1, /* include PID namespaces data */
+				__reserved_1   : 25;
 
 	union {
 		__u32		wakeup_events;	  /* wake up every n events */
@@ -842,6 +843,12 @@ struct perf_event_header {
 struct perf_ns_link_info {
 	__u64 dev;
 	__u64 ino;
+};
+
+struct perf_pidns_info {
+	struct perf_ns_link_info ns;
+	__u32 tgid;
+	__u32 pid;
 };
 
 enum {
@@ -1238,6 +1245,18 @@ enum perf_event_type {
 	 * };
 	 */
 	PERF_RECORD_AUX_OUTPUT_HW_ID		= 21,
+
+	/*
+	 * PIDs of a task in all its PID namespaces.
+	 *
+	 * struct {
+	 *	struct perf_event_header	header;
+	 *	u64				nr_namespaces;
+	 *	{ u64 dev; u64 inode; i32 tgid; i32 pid; } [nr_namespaces];
+	 *	struct sample_id		sample_id;
+	 * };
+	 */
+	PERF_RECORD_NSPID			= 22,
 
 	PERF_RECORD_MAX,			/* non-ABI */
 };

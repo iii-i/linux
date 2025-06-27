@@ -437,6 +437,7 @@ static DEFINE_PER_CPU(struct pmu_event_list, pmu_sb_events);
 static atomic_t nr_mmap_events __read_mostly;
 static atomic_t nr_comm_events __read_mostly;
 static atomic_t nr_namespaces_events __read_mostly;
+static atomic_t nr_nspid_events __read_mostly;
 static atomic_t nr_task_events __read_mostly;
 static atomic_t nr_freq_events __read_mostly;
 static atomic_t nr_switch_events __read_mostly;
@@ -1418,17 +1419,23 @@ unclone_ctx(struct perf_event_context *ctx)
 	return parent_ctx;
 }
 
-static u32 perf_event_pid_type(struct perf_event *event, struct task_struct *p,
-				enum pid_type type)
+static struct pid_namespace *perf_event_ns(struct perf_event *event)
 {
-	u32 nr;
 	/*
 	 * only top level events have the pid namespace they were created in
 	 */
 	if (event->parent)
 		event = event->parent;
 
-	nr = __task_pid_nr_ns(p, type, event->ns);
+	return event->ns;
+}
+
+static u32 perf_event_pid_type(struct perf_event *event, struct task_struct *p,
+				enum pid_type type)
+{
+	u32 nr;
+
+	nr = __task_pid_nr_ns(p, type, perf_event_ns(event));
 	/* avoid -1 if it is idle thread or runs in another ns */
 	if (!nr && !pid_alive(p))
 		nr = -1;
@@ -5464,6 +5471,8 @@ static void unaccount_event(struct perf_event *event)
 		atomic_dec(&nr_comm_events);
 	if (event->attr.namespaces)
 		atomic_dec(&nr_namespaces_events);
+	if (event->attr.nspid)
+		atomic_dec(&nr_nspid_events);
 	if (event->attr.cgroup)
 		atomic_dec(&nr_cgroup_events);
 	if (event->attr.task)
@@ -8937,6 +8946,7 @@ void perf_event_fork(struct task_struct *task)
 {
 	perf_event_task(task, NULL, 1);
 	perf_event_namespaces(task);
+	perf_event_nspid(task);
 	perf_event_alloc_task_data(task, current);
 }
 
@@ -9167,6 +9177,95 @@ void perf_event_namespaces(struct task_struct *task)
 	perf_iterate_sb(perf_event_namespaces_output,
 			&namespaces_event,
 			NULL);
+}
+
+struct perf_nspid_event {
+	struct task_struct		*task;
+	struct perf_event_header	header;
+};
+
+static int perf_event_nspid_match(struct perf_event *event)
+{
+	return event->attr.nspid;
+}
+
+static void perf_event_nspid_output(struct perf_event *event, void *data)
+{
+	struct pid_namespace *ns = perf_event_ns(event);
+	struct perf_nspid_event *nspid_event = data;
+	struct perf_output_handle handle;
+	struct perf_sample_data sample;
+	u64 nr_namespaces;
+	struct pid *pid;
+	u16 header_size;
+	unsigned int i;
+	int ret;
+
+	if (!perf_event_nspid_match(event))
+		return;
+
+	pid = task_pid(nspid_event->task);
+	if (pid->level < ns->level || pid->numbers[ns->level].ns != ns)
+		return;
+	header_size = nspid_event->header.size;
+	nspid_event->header.size += sizeof(nr_namespaces);
+	nr_namespaces = pid->level - ns->level + 1;
+	nspid_event->header.size += (nr_namespaces *
+				     sizeof(struct perf_pidns_info));
+
+	perf_event_header__init_id(&nspid_event->header,
+				   &sample, event);
+	ret = perf_output_begin(&handle, &sample, event,
+				nspid_event->header.size);
+	if (ret)
+		goto out;
+	perf_output_put(&handle, nspid_event->header);
+
+	__output_copy(&handle, &nr_namespaces, sizeof(nr_namespaces));
+
+	for (i = ns->level; i <= pid->level; i++) {
+		struct perf_pidns_info info = {};
+		ino_t inode;
+		dev_t dev;
+
+		ns_get_dev_ino(&pid->numbers[i].ns->ns, &dev, &inode);
+		info.ns.dev = dev;
+		info.ns.ino = inode;
+		info.tgid = task_tgid_nr_ns(nspid_event->task,
+					    pid->numbers[i].ns);
+		info.pid = task_pid_nr_ns(nspid_event->task,
+					  pid->numbers[i].ns);
+		__output_copy(&handle, &info, sizeof(info));
+	}
+
+	perf_event__output_id_sample(event, &handle, &sample);
+
+	perf_output_end(&handle);
+out:
+	nspid_event->header.size = header_size;
+}
+
+void perf_event_nspid(struct task_struct *task)
+{
+#ifdef CONFIG_PID_NS
+	struct perf_nspid_event nspid_event;
+
+	if (!atomic_read(&nr_nspid_events))
+		return;
+
+	nspid_event = (struct perf_nspid_event){
+		.task = task,
+		.header = {
+			.type = PERF_RECORD_NSPID,
+			.misc = 0,
+			.size = sizeof(nspid_event.header),
+		},
+	};
+
+	perf_iterate_sb(perf_event_nspid_output,
+			&nspid_event,
+			NULL);
+#endif
 }
 
 /*
@@ -12784,6 +12883,8 @@ static void account_event(struct perf_event *event)
 		atomic_inc(&nr_comm_events);
 	if (event->attr.namespaces)
 		atomic_inc(&nr_namespaces_events);
+	if (event->attr.nspid)
+		atomic_inc(&nr_nspid_events);
 	if (event->attr.cgroup)
 		atomic_inc(&nr_cgroup_events);
 	if (event->attr.task)
