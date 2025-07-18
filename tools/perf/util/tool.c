@@ -255,6 +255,7 @@ void perf_tool__init(struct perf_tool *tool, bool ordered_events)
 	tool->ordered_events = ordered_events;
 	tool->ordering_requires_timestamps = false;
 	tool->namespace_events = false;
+	tool->nspid_events = false;
 	tool->cgroup_events = false;
 	tool->no_warn = false;
 	tool->show_feat_hdr = SHOW_FEAT_NO_HEADER;

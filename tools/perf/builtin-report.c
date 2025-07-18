@@ -1596,6 +1596,7 @@ repeat:
 	report.tool.mmap2		 = perf_event__process_mmap2;
 	report.tool.comm		 = perf_event__process_comm;
 	report.tool.namespaces		 = perf_event__process_namespaces;
+	report.tool.nspid		 = perf_event__process_nspid;
 	report.tool.cgroup		 = perf_event__process_cgroup;
 	report.tool.exit		 = perf_event__process_exit;
 	report.tool.fork		 = perf_event__process_fork;

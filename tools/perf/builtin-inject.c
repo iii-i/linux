@@ -647,6 +647,18 @@ static int perf_event__repipe_namespaces(const struct perf_tool *tool,
 	return err;
 }
 
+static int perf_event__repipe_nspid(const struct perf_tool *tool,
+				    union perf_event *event,
+				    struct perf_sample *sample,
+				    struct machine *machine)
+{
+	int err = perf_event__process_nspid(tool, event, sample, machine);
+
+	perf_event__repipe(tool, event, sample, machine);
+
+	return err;
+}
+
 static int perf_event__repipe_exit(const struct perf_tool *tool,
 				   union perf_event *event,
 				   struct perf_sample *sample,
@@ -2226,6 +2238,7 @@ static int __cmd_inject(struct perf_inject *inject)
 		inject->itrace_synth_opts.inject = true;
 		inject->tool.comm	    = perf_event__repipe_comm;
 		inject->tool.namespaces	    = perf_event__repipe_namespaces;
+		inject->tool.nspid	    = perf_event__repipe_nspid;
 		inject->tool.exit	    = perf_event__repipe_exit;
 		inject->tool.id_index	    = perf_event__process_id_index;
 		inject->tool.auxtrace_info  = perf_event__process_auxtrace_info;
@@ -2504,6 +2517,7 @@ int cmd_inject(int argc, const char **argv)
 	inject.tool.mmap2		= perf_event__repipe;
 	inject.tool.comm		= perf_event__repipe;
 	inject.tool.namespaces		= perf_event__repipe;
+	inject.tool.nspid		= perf_event__repipe_nspid;
 	inject.tool.cgroup		= perf_event__repipe;
 	inject.tool.fork		= perf_event__repipe;
 	inject.tool.exit		= perf_event__repipe;

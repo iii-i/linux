@@ -286,6 +286,7 @@ static int report_raw_events(struct perf_mem *mem)
 	mem->tool.attr		= perf_event__process_attr;
 	mem->tool.build_id	= perf_event__process_build_id;
 	mem->tool.namespaces	= perf_event__process_namespaces;
+	mem->tool.nspid		= perf_event__process_nspid;
 	mem->tool.auxtrace_info  = perf_event__process_auxtrace_info;
 	mem->tool.auxtrace       = perf_event__process_auxtrace;
 	mem->tool.auxtrace_error = perf_event__process_auxtrace_error;

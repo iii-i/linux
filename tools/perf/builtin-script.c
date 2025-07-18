@@ -149,6 +149,7 @@ struct perf_script {
 	bool			show_mmap_events;
 	bool			show_switch_events;
 	bool			show_namespace_events;
+	bool			show_nspid_events;
 	bool			show_lost_events;
 	bool			show_round_events;
 	bool			show_bpf_events;
@@ -2648,6 +2649,18 @@ static int process_namespaces_event(const struct perf_tool *tool,
 			   event->namespaces.tid);
 }
 
+static int process_nspid_event(const struct perf_tool *tool,
+			       union perf_event *event,
+			       struct perf_sample *sample,
+			       struct machine *machine)
+{
+	if (perf_event__process_nspid(tool, event, sample, machine) < 0)
+		return -1;
+
+	return print_event(tool, event, sample, machine, event->namespaces.pid,
+			   event->namespaces.tid);
+}
+
 static int process_cgroup_event(const struct perf_tool *tool,
 				union perf_event *event,
 				struct perf_sample *sample,
@@ -2905,6 +2918,8 @@ static int __cmd_script(struct perf_script *script)
 		script->tool.auxtrace_error = process_auxtrace_error;
 	if (script->show_namespace_events)
 		script->tool.namespaces = process_namespaces_event;
+	if (script->show_nspid_events)
+		script->tool.namespaces = process_nspid_event;
 	if (script->show_cgroup_events)
 		script->tool.cgroup = process_cgroup_event;
 	if (script->show_lost_events)
@@ -3834,6 +3849,8 @@ int cmd_script(int argc, const char **argv)
 		    "Show context switch events (if recorded)"),
 	OPT_BOOLEAN('\0', "show-namespace-events", &script.show_namespace_events,
 		    "Show namespace events (if recorded)"),
+	OPT_BOOLEAN('\0', "show-nspid-events", &script.show_nspid_events,
+		    "Show PID namespace events (if recorded)"),
 	OPT_BOOLEAN('\0', "show-cgroup-events", &script.show_cgroup_events,
 		    "Show cgroup events (if recorded)"),
 	OPT_BOOLEAN('\0', "show-lost-events", &script.show_lost_events,
@@ -4112,6 +4129,7 @@ script_found:
 	script.tool.mmap2		 = perf_event__process_mmap2;
 	script.tool.comm		 = perf_event__process_comm;
 	script.tool.namespaces		 = perf_event__process_namespaces;
+	script.tool.nspid		 = perf_event__process_nspid;
 	script.tool.cgroup		 = perf_event__process_cgroup;
 	script.tool.exit		 = perf_event__process_exit;
 	script.tool.fork		 = perf_event__process_fork;

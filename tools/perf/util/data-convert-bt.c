@@ -1624,6 +1624,7 @@ int bt_convert__perf2ctf(const char *input, const char *path,
 	c.tool.tracing_data    = perf_event__process_tracing_data;
 	c.tool.build_id        = perf_event__process_build_id;
 	c.tool.namespaces      = perf_event__process_namespaces;
+	c.tool.nspid           = perf_event__process_nspid;
 	c.tool.ordering_requires_timestamps = true;
 
 	if (opts->all) {

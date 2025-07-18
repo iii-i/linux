@@ -333,6 +333,7 @@ int bt_convert__perf2json(const char *input_name, const char *output_name,
 	c.tool.mmap2          = perf_event__process_mmap2;
 	c.tool.comm           = perf_event__process_comm;
 	c.tool.namespaces     = perf_event__process_namespaces;
+	c.tool.nspid          = perf_event__process_nspid;
 	c.tool.cgroup         = perf_event__process_cgroup;
 	c.tool.exit           = perf_event__process_exit;
 	c.tool.fork           = perf_event__process_fork;

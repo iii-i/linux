@@ -37,6 +37,7 @@ struct record_opts {
 	bool	      auxtrace_snapshot_on_exit;
 	bool	      auxtrace_sample_mode;
 	bool	      record_namespaces;
+	bool	      record_nspid;
 	bool	      record_cgroup;
 	bool	      record_switch_events;
 	bool	      record_switch_events_set;

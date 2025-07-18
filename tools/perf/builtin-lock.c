@@ -1868,6 +1868,7 @@ static int __cmd_report(bool display_info)
 	eops.comm		 = perf_event__process_comm;
 	eops.mmap		 = perf_event__process_mmap;
 	eops.namespaces		 = perf_event__process_namespaces;
+	eops.nspid		 = perf_event__process_nspid;
 	eops.tracing_data	 = perf_event__process_tracing_data;
 	session = perf_session__new(&data, &eops);
 	if (IS_ERR(session)) {

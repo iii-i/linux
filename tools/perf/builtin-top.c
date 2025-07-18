@@ -1274,6 +1274,8 @@ static int __cmd_top(struct perf_top *top)
 
 	if (opts->record_namespaces)
 		top->tool.namespace_events = true;
+	if (opts->record_nspid)
+		top->tool.nspid_events = true;
 	if (opts->record_cgroup) {
 #ifdef HAVE_FILE_HANDLE
 		top->tool.cgroup_events = true;
@@ -1603,6 +1605,8 @@ int cmd_top(int argc, const char **argv)
 		     "monitor event in cgroup name only", parse_cgroups),
 	OPT_BOOLEAN(0, "namespaces", &opts->record_namespaces,
 		    "Record namespaces events"),
+	OPT_BOOLEAN(0, "nspid", &opts->record_nspid,
+		    "Record PID namespace events"),
 	OPT_BOOLEAN(0, "all-cgroups", &opts->record_cgroup,
 		    "Record cgroup events"),
 	OPT_INTEGER(0, "group-sort-idx", &symbol_conf.group_sort_idx,

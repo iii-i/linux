@@ -17,6 +17,7 @@
 #include "branch.h"
 #include "mem-events.h"
 #include "mem-info.h"
+#include "namespaces.h"
 #include "path.h"
 #include "srcline.h"
 #include "symbol.h"
@@ -649,6 +650,34 @@ int machine__process_namespaces_event(struct machine *machine __maybe_unused,
 		dump_printf("problem processing PERF_RECORD_NAMESPACES, skipping event.\n");
 		err = -1;
 	}
+
+	thread__put(thread);
+
+	return err;
+}
+
+int machine__process_nspid_event(struct machine *machine,
+				 union perf_event *event)
+{
+	struct thread *thread;
+	struct nsinfo *nsi;
+	int err = 0;
+
+	if (dump_trace)
+		perf_event__fprintf_nspid(event, stdout);
+
+	thread = machine__findnew_thread(machine, event->nspid.pidns[0].tgid,
+					 event->nspid.pidns[0].pid);
+	/*
+	 * Discard the PID namespace information that machine__findnew_thread()
+	 * obtained from the currently running system.
+	 */
+	nsi = nsinfo__get(thread__nsinfo(thread));
+	RC_CHK_ACCESS(nsi)->tgid = event->nspid.pidns[0].tgid;
+	RC_CHK_ACCESS(nsi)->nstgid =
+		event->nspid.pidns[event->nspid.nr_namespaces - 1].tgid;
+	RC_CHK_ACCESS(nsi)->in_pidns = event->nspid.nr_namespaces > 1;
+	nsinfo__put(nsi);
 
 	thread__put(thread);
 
@@ -1984,6 +2013,8 @@ int machine__process_event(struct machine *machine, union perf_event *event,
 		ret = machine__process_text_poke(machine, event, sample); break;
 	case PERF_RECORD_AUX_OUTPUT_HW_ID:
 		ret = machine__process_aux_output_hw_id_event(machine, event); break;
+	case PERF_RECORD_NSPID:
+		ret = machine__process_nspid_event(machine, event); break;
 	default:
 		ret = -1;
 		break;

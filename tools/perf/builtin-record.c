@@ -2430,11 +2430,13 @@ static int __cmd_record(struct record *rec, int argc, const char **argv)
 	tool->exit		= perf_event__process_exit;
 	tool->comm		= perf_event__process_comm;
 	tool->namespaces	= perf_event__process_namespaces;
+	tool->nspid		= perf_event__process_nspid;
 	tool->mmap		= build_id__process_mmap;
 	tool->mmap2		= build_id__process_mmap2;
 	tool->itrace_start	= process_timestamp_boundary;
 	tool->aux		= process_timestamp_boundary;
 	tool->namespace_events	= rec->opts.record_namespaces;
+	tool->nspid_events	= rec->opts.record_nspid;
 	tool->cgroup_events	= rec->opts.record_cgroup;
 	session = perf_session__new(data, tool);
 	if (IS_ERR(session)) {
@@ -2653,6 +2655,10 @@ static int __cmd_record(struct record *rec, int argc, const char **argv)
 						  rec->evlist->workload.pid,
 						  tgid, process_synthesized_event,
 						  machine);
+		perf_event__synthesize_nspid(tool,
+					     rec->evlist->workload.pid,
+					     tgid, process_synthesized_event,
+					     machine);
 		free(event);
 
 		evlist__start_workload(rec->evlist);
@@ -3567,6 +3573,8 @@ static struct option __record_options[] = {
 			"per thread proc mmap processing timeout in ms"),
 	OPT_BOOLEAN(0, "namespaces", &record.opts.record_namespaces,
 		    "Record namespaces events"),
+	OPT_BOOLEAN(0, "nspid", &record.opts.record_nspid,
+		    "Record PID namespace events"),
 	OPT_BOOLEAN(0, "all-cgroups", &record.opts.record_cgroup,
 		    "Record cgroup events"),
 	OPT_BOOLEAN_SET(0, "switch-events", &record.opts.record_switch_events,

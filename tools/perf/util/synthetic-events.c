@@ -23,6 +23,7 @@
 #include <linux/string.h>
 #include <linux/zalloc.h>
 #include <linux/perf_event.h>
+#include <linux/nsfs.h>
 #include <asm/bug.h>
 #include <perf/evsel.h>
 #include <perf/cpumap.h>
@@ -41,6 +42,7 @@
 #include <api/io_dir.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -256,6 +258,189 @@ int perf_event__synthesize_namespaces(const struct perf_tool *tool,
 		return -1;
 
 	return 0;
+}
+
+static int get_char_count(const char *haystack, char needle)
+{
+	const char *p = haystack;
+	int n = 0;
+
+	while (1) {
+		p = strchr(p, needle);
+		if (p == NULL)
+			break;
+		p++;
+		n++;
+	}
+
+	return n;
+}
+
+static int perf_event__parse_pids(const char *statln_values,
+				  pid_t **pids, u64 *nr_pids)
+{
+	const char *p = statln_values;
+	u64 i = 0;
+
+	*nr_pids = get_char_count(statln_values, '\t') + 1;
+	*pids = malloc(sizeof(pid_t) * *nr_pids);
+	if (*pids == NULL)
+		return -1;
+
+	while (1) {
+		(*pids)[i++] = atoi(p);
+		p = strchr(p, '\t');
+		if (p == NULL)
+			break;
+		p++;
+	}
+
+	return 0;
+}
+
+static int perf_event__get_nspid(pid_t tgid, pid_t pid,
+				 pid_t **nstgid, pid_t **nspid,
+				 u64 *nr_namespaces)
+{
+	u64 nr_nstgid, nr_nspid;
+	char *statln = NULL;
+	size_t linesz = 0;
+	char path[64];
+	int err = 0;
+	FILE *f;
+
+	*nstgid = NULL;
+	*nspid = NULL;
+
+	snprintf(path, sizeof(path), "/proc/%d/task/%d/status", tgid, pid);
+	f = fopen(path, "r");
+	if (f == NULL)
+		return -1;
+
+	while (getline(&statln, &linesz, f) != -1) {
+		if (memcmp(statln, "NStgid:\t", 8) == 0) {
+			if (*nstgid != NULL) {
+				err = -1;
+				break;
+			}
+			err = perf_event__parse_pids(statln + 8,
+						     nstgid, &nr_nstgid);
+			if (err != 0)
+				break;
+		}
+		if (memcmp(statln, "NSpid:\t", 7) == 0) {
+			if (*nspid != NULL) {
+				err = -1;
+				break;
+			}
+			err = perf_event__parse_pids(statln + 7,
+						     nspid, &nr_nspid);
+			if (err != 0)
+				break;
+		}
+	}
+	if (err == 0) {
+		if (*nstgid == NULL || *nspid == NULL || nr_nspid != nr_nstgid)
+			err = -1;
+		else
+			*nr_namespaces = nr_nspid;
+	}
+
+	if (err != 0) {
+		free(*nstgid);
+		free(*nspid);
+	}
+	free(statln);
+	fclose(f);
+	return err;
+}
+
+static union perf_event *nspid_event__new(pid_t *nstgid, pid_t *nspid,
+					  u64 nr_namespaces,
+					  struct machine *machine)
+{
+	int ns_fd, parent_ns_fd;
+	union perf_event *event;
+	struct stat ns_statbuf;
+	char ns_path[64];
+	size_t size;
+	u64 i;
+
+	size = sizeof(struct perf_record_nspid) +
+			sizeof(struct perf_pidns_info) * nr_namespaces +
+			machine->id_hdr_size;
+	event = zalloc(size);
+	if (event == NULL)
+		goto err;
+
+	event->nspid.header.type = PERF_RECORD_NSPID;
+	event->nspid.header.size = size;
+
+	snprintf(ns_path, sizeof(ns_path), "/proc/%d/task/%d/ns/pid",
+		 nstgid[0], nspid[0]);
+	ns_fd = open(ns_path, O_RDONLY | O_CLOEXEC);
+	if (ns_fd == -1)
+		goto err_free_event;
+
+	event->nspid.nr_namespaces = nr_namespaces;
+	i = 0;
+	while (true) {
+		if (fstat(ns_fd, &ns_statbuf))
+			goto err_close_ns_fd;
+		event->nspid.pidns[i].ns.dev = ns_statbuf.st_dev;
+		event->nspid.pidns[i].ns.ino = ns_statbuf.st_ino;
+		event->nspid.pidns[i].tgid = nstgid[i];
+		event->nspid.pidns[i].pid = nspid[i];
+
+		if (++i == nr_namespaces)
+			break;
+
+		parent_ns_fd = ioctl(ns_fd, NS_GET_PARENT);
+		if (parent_ns_fd == -1)
+			goto err_close_ns_fd;
+		close(ns_fd);
+		ns_fd = parent_ns_fd;
+	}
+
+	return event;
+
+err_close_ns_fd:
+	close(ns_fd);
+err_free_event:
+	free(event);
+err:
+	return NULL;
+}
+
+int perf_event__synthesize_nspid(const struct perf_tool *tool,
+				 pid_t pid, pid_t tgid,
+				 perf_event__handler_t process,
+				 struct machine *machine)
+{
+	union perf_event *event;
+	pid_t *nstgid, *nspid;
+	u64 nr_namespaces;
+	int err = -1;
+
+	if (!tool || !tool->nspid_events)
+		return 0;
+
+	if (perf_event__get_nspid(tgid, pid, &nstgid, &nspid,
+				  &nr_namespaces) != 0)
+		goto out;
+
+	event = nspid_event__new(nstgid, nspid, nr_namespaces, machine);
+	if (!event)
+		goto free_pids;
+
+	err = perf_tool__process_synth_event(tool, event, machine, process);
+
+	free(event);
+free_pids:
+	free(nstgid);
+	free(nspid);
+out:
+	return err;
 }
 
 static int perf_event__synthesize_fork(const struct perf_tool *tool,
@@ -791,6 +976,10 @@ static int __event__synthesize_thread(union perf_event *comm_event,
 						      tgid, process, machine) < 0)
 			return -1;
 
+		if (perf_event__synthesize_nspid(tool, pid, tgid,
+						 process, machine) < 0)
+			return -1;
+
 		/*
 		 * send mmap only for thread group leader
 		 * see thread__init_maps()
@@ -837,6 +1026,10 @@ static int __event__synthesize_thread(union perf_event *comm_event,
 
 		if (perf_event__synthesize_namespaces(tool, namespaces_event, _pid,
 						      tgid, process, machine) < 0)
+			break;
+
+		if (perf_event__synthesize_nspid(tool, _pid, tgid,
+						 process, machine) < 0)
 			break;
 
 		/*

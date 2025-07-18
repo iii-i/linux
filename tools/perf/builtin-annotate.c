@@ -867,6 +867,7 @@ int cmd_annotate(int argc, const char **argv)
 	annotate.tool.exit	= perf_event__process_exit;
 	annotate.tool.fork	= perf_event__process_fork;
 	annotate.tool.namespaces = perf_event__process_namespaces;
+	annotate.tool.nspid	= perf_event__process_nspid;
 	annotate.tool.attr	= perf_event__process_attr;
 	annotate.tool.build_id = perf_event__process_build_id;
 #ifdef HAVE_LIBTRACEEVENT

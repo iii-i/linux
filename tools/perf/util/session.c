@@ -697,6 +697,20 @@ static void perf_event__time_conv_swap(union perf_event *event,
 	}
 }
 
+static void perf_event__nspid_swap(union perf_event *event,
+				   bool sample_id_all __maybe_unused)
+{
+	u64 i;
+
+	event->nspid.nr_namespaces = bswap_64(event->nspid.nr_namespaces);
+
+	for (i = 0; i < event->nspid.nr_namespaces; i++) {
+		event->nspid.pidns[i].ns.dev = bswap_64(event->nspid.pidns[i].ns.dev);
+		event->nspid.pidns[i].ns.ino = bswap_64(event->nspid.pidns[i].ns.ino);
+		event->nspid.pidns[i].pid = bswap_32(event->nspid.pidns[i].pid);
+	}
+}
+
 typedef void (*perf_event__swap_op)(union perf_event *event,
 				    bool sample_id_all);
 
@@ -735,6 +749,7 @@ static perf_event__swap_op perf_event__swap_ops[] = {
 	[PERF_RECORD_STAT_ROUND]	  = perf_event__stat_round_swap,
 	[PERF_RECORD_EVENT_UPDATE]	  = perf_event__event_update_swap,
 	[PERF_RECORD_TIME_CONV]		  = perf_event__time_conv_swap,
+	[PERF_RECORD_NSPID]		  = perf_event__nspid_swap,
 	[PERF_RECORD_HEADER_MAX]	  = NULL,
 };
 
@@ -1353,6 +1368,8 @@ static int machines__deliver_event(struct machines *machines,
 		return tool->text_poke(tool, event, sample, machine);
 	case PERF_RECORD_AUX_OUTPUT_HW_ID:
 		return tool->aux_output_hw_id(tool, event, sample, machine);
+	case PERF_RECORD_NSPID:
+		return tool->nspid(tool, event, sample, machine);
 	default:
 		++evlist->stats.nr_unknown_events;
 		return -1;

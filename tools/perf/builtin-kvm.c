@@ -1554,6 +1554,7 @@ static int read_events(struct perf_kvm_stat *kvm)
 	kvm->tool.sample	= process_sample_event;
 	kvm->tool.comm		= perf_event__process_comm;
 	kvm->tool.namespaces	= perf_event__process_namespaces;
+	kvm->tool.nspid		= perf_event__process_nspid;
 
 	kvm->session = perf_session__new(&file, &kvm->tool);
 	if (IS_ERR(kvm->session)) {
@@ -1863,6 +1864,7 @@ static int kvm_events_live(struct perf_kvm_stat *kvm,
 	kvm->tool.fork   = perf_event__process_fork;
 	kvm->tool.lost   = process_lost_event;
 	kvm->tool.namespaces  = perf_event__process_namespaces;
+	kvm->tool.nspid       = perf_event__process_nspid;
 
 	/* set defaults */
 	kvm->display_time = 1;

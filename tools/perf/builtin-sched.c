@@ -3954,6 +3954,7 @@ int cmd_sched(int argc, const char **argv)
 	sched.tool.sample	 = perf_sched__process_tracepoint_sample;
 	sched.tool.comm		 = perf_sched__process_comm;
 	sched.tool.namespaces	 = perf_event__process_namespaces;
+	sched.tool.nspid	 = perf_event__process_nspid;
 	sched.tool.lost		 = perf_event__process_lost;
 	sched.tool.fork		 = perf_sched__process_fork_event;
 

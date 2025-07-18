@@ -1955,6 +1955,7 @@ int cmd_diff(int argc, const char **argv)
 	pdiff.tool.fork	= perf_event__process_fork;
 	pdiff.tool.lost	= perf_event__process_lost;
 	pdiff.tool.namespaces = perf_event__process_namespaces;
+	pdiff.tool.nspid      = perf_event__process_nspid;
 	pdiff.tool.cgroup = perf_event__process_cgroup;
 	pdiff.tool.ordering_requires_timestamps = true;
 

@@ -484,6 +484,12 @@ struct perf_record_bpf_metadata {
 	struct perf_record_bpf_metadata_entry entries[];
 };
 
+struct perf_record_nspid {
+	struct perf_event_header header;
+	__u64			 nr_namespaces;
+	struct perf_pidns_info	 pidns[];
+};
+
 enum perf_user_event_type { /* above any possible kernel type */
 	PERF_RECORD_USER_TYPE_START		= 64,
 	PERF_RECORD_HEADER_ATTR			= 64,
@@ -549,6 +555,7 @@ union perf_event {
 	struct perf_record_compressed		pack;
 	struct perf_record_compressed2		pack2;
 	struct perf_record_bpf_metadata		bpf_metadata;
+	struct perf_record_nspid		nspid;
 };
 
 #endif /* __LIBPERF_EVENT_H */

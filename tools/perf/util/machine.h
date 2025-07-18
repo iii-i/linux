@@ -129,6 +129,8 @@ int machine__process_switch_event(struct machine *machine,
 int machine__process_namespaces_event(struct machine *machine,
 				      union perf_event *event,
 				      struct perf_sample *sample);
+int machine__process_nspid_event(struct machine *machine,
+				 union perf_event *event);
 int machine__process_cgroup_event(struct machine *machine,
 				  union perf_event *event,
 				  struct perf_sample *sample);

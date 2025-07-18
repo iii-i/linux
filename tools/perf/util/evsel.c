@@ -1524,6 +1524,9 @@ void evsel__config(struct evsel *evsel, struct record_opts *opts,
 	if (opts->record_namespaces)
 		attr->namespaces  = track;
 
+	if (opts->record_nspid)
+		attr->nspid = track;
+
 	if (opts->record_cgroup) {
 		attr->cgroup = track && !perf_missing_features.cgroup;
 		evsel__set_sample_bit(evsel, CGROUP);

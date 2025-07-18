@@ -1998,6 +1998,7 @@ int cmd_kmem(int argc, const char **argv)
 	perf_kmem.mmap		= perf_event__process_mmap;
 	perf_kmem.mmap2		= perf_event__process_mmap2;
 	perf_kmem.namespaces	= perf_event__process_namespaces;
+	perf_kmem.nspid		= perf_event__process_nspid;
 
 	kmem_session = session = perf_session__new(&data, &perf_kmem);
 	if (IS_ERR(session))

@@ -47,6 +47,7 @@ struct perf_tool {
 			mmap2,
 			comm,
 			namespaces,
+			nspid,
 			cgroup,
 			fork,
 			exit,
@@ -84,6 +85,7 @@ struct perf_tool {
 	bool		ordered_events;
 	bool		ordering_requires_timestamps;
 	bool		namespace_events;
+	bool		nspid_events;
 	bool		cgroup_events;
 	bool		no_warn;
 	bool		dont_split_sample_group;

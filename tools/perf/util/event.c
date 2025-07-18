@@ -82,6 +82,7 @@ static const char *perf_event__names[] = {
 	[PERF_RECORD_FINISHED_INIT]		= "FINISHED_INIT",
 	[PERF_RECORD_COMPRESSED2]		= "COMPRESSED2",
 	[PERF_RECORD_BPF_METADATA]		= "BPF_METADATA",
+	[PERF_RECORD_NSPID]			= "NSPID",
 };
 
 const char *perf_event__name(unsigned int id)
@@ -235,6 +236,14 @@ int perf_event__process_namespaces(const struct perf_tool *tool __maybe_unused,
 				   struct machine *machine)
 {
 	return machine__process_namespaces_event(machine, event, sample);
+}
+
+int perf_event__process_nspid(const struct perf_tool *tool __maybe_unused,
+			      union perf_event *event,
+			      struct perf_sample *sample __maybe_unused,
+			      struct machine *machine)
+{
+	return machine__process_nspid_event(machine, event);
 }
 
 int perf_event__process_cgroup(const struct perf_tool *tool __maybe_unused,
@@ -570,6 +579,30 @@ size_t perf_event__fprintf_text_poke(union perf_event *event, struct machine *ma
 	return ret;
 }
 
+size_t perf_event__fprintf_nspid(union perf_event *event, FILE *fp)
+{
+	struct perf_record_nspid *nspid = &event->nspid;
+	size_t ret;
+	__u64 idx;
+
+	ret = fprintf(fp, " - nr_namespaces: %" PRI_lu64 "\n\t\t[",
+		      nspid->nr_namespaces);
+	for (idx = 0; idx < nspid->nr_namespaces; idx++) {
+		if (idx && (idx % 4 == 0))
+			ret += fprintf(fp, "\n\t\t ");
+
+		ret += fprintf(fp, "%" PRI_lu64, idx);
+		ret += fprintf(fp, "/%" PRIu32, nspid->pidns[idx].tgid);
+		ret += fprintf(fp, "/%" PRIu32, nspid->pidns[idx].pid);
+		ret += fprintf(fp, ": %" PRI_lu64, nspid->pidns[idx].ns.dev);
+		ret += fprintf(fp, "/%#" PRI_lx64, nspid->pidns[idx].ns.ino);
+		ret += fprintf(fp, ((idx + 1) != nspid->nr_namespaces) ?
+				   ", " : "]\n");
+	}
+
+	return ret;
+}
+
 size_t perf_event__fprintf(union perf_event *event, struct machine *machine, FILE *fp)
 {
 	size_t ret = fprintf(fp, "PERF_RECORD_%s",
@@ -622,6 +655,9 @@ size_t perf_event__fprintf(union perf_event *event, struct machine *machine, FIL
 		break;
 	case PERF_RECORD_BPF_METADATA:
 		ret += perf_event__fprintf_bpf_metadata(event, fp);
+		break;
+	case PERF_RECORD_NSPID:
+		ret += perf_event__fprintf_nspid(event, fp);
 		break;
 	default:
 		ret += fprintf(fp, "\n");
