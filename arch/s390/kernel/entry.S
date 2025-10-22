@@ -289,7 +289,10 @@ SYM_CODE_END(ret_from_fork)
  */
 
 SYM_CODE_START(pgm_check_handler)
+	CFI_STARTPROC
+	CFI_GLOBAL_MULTIPLE 64,65,__LC_PGM_OLD_PSW
 	STMG_LC	%r8,%r15,__LC_SAVE_AREA
+	CFI_GLOBAL_MULTIPLE 8,15,__LC_SAVE_AREA
 	GET_LC	%r13
 	stpt	__LC_SYS_ENTER_TIMER(%r13)
 	BPOFF
@@ -317,9 +320,12 @@ SYM_CODE_START(pgm_check_handler)
 	stg	%r10,__PT_FLAGS(%r11)
 	xc	__SF_BACKCHAIN(8,%r15),__SF_BACKCHAIN(%r15)
 	stmg	%r0,%r7,__PT_R0(%r11)
+	CFI_OFFSET_MULTIPLE 0,7,__PT_R0
 	mvc	__PT_R8(64,%r11),__LC_SAVE_AREA(%r13)
+	CFI_OFFSET_MULTIPLE 8,15,__PT_R0+64
 	mvc	__PT_LAST_BREAK(8,%r11),__LC_PGM_LAST_BREAK(%r13)
 	stmg	%r8,%r9,__PT_PSW(%r11)
+	CFI_OFFSET_MULTIPLE 64,65,__PT_PSW
 	# clear user controlled registers to prevent speculative use
 	xgr	%r0,%r0
 	xgr	%r1,%r1
@@ -338,9 +344,12 @@ SYM_CODE_START(pgm_check_handler)
 	stpt	__LC_EXIT_TIMER(%r13)
 .Lpgm_exit_kernel:
 	mvc	__LC_RETURN_PSW(16,%r13),STACK_FRAME_OVERHEAD+__PT_PSW(%r15)
+	CFI_GLOBAL_MULTIPLE 64,65,__LC_RETURN_PSW
 	LBEAR	STACK_FRAME_OVERHEAD+__PT_LAST_BREAK(%r15)
 	lmg	%r0,%r15,STACK_FRAME_OVERHEAD+__PT_R0(%r15)
+	CFI_RESTORE_MULTIPLE 0,15
 	LPSWEY	__LC_RETURN_PSW,__LC_RETURN_LPSWE
+	CFI_ENDPROC
 
 #
 # single stepped system call

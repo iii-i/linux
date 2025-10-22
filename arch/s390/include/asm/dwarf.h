@@ -33,6 +33,45 @@
 	.cfi_sections .eh_frame, .debug_frame
 #endif
 
+#define DW_CFA_restore_extended 0x06
+#define DW_CFA_expression 0x10
+#define DW_CFA_offset_extended_sf 0x11
+
+#define DW_OP_const8u 0x0e
+
+.macro CFI_GLOBAL reg, addr
+#if defined(CONFIG_AS_CFI_ESCAPE_LEB128) && defined(CONFIG_AS_CFI_ESCAPE_DATA)
+.cfi_escape DW_CFA_expression, uleb128(\reg), 9, DW_OP_const8u, data8(\addr)
+#else
+.cfi_undefined \reg
+#endif
+.endm
+
+.macro CFI_GLOBAL_MULTIPLE reg1, reg2, addr
+.set .Lreg, (\reg1)
+.rept (\reg2)-(\reg1)+1
+	CFI_GLOBAL .Lreg, (\addr)+(.Lreg-(\reg1))*8
+	.set .Lreg, .Lreg+1
+.endr
+.endm
+
+.macro CFI_OFFSET_MULTIPLE reg1, reg2, off
+.set .Lreg, (\reg1)
+.rept (\reg2)-(\reg1)+1
+	.cfi_escape DW_CFA_offset_extended_sf, uleb128(.Lreg), \
+		    sleb128(-(\off)/8-(.Lreg-(\reg1)))
+	.set .Lreg, .Lreg+1
+.endr
+.endm
+
+.macro CFI_RESTORE_MULTIPLE reg1, reg2
+.set .Lreg, (\reg1)
+.rept (\reg2)-(\reg1)+1
+	.cfi_escape DW_CFA_restore_extended, uleb128(.Lreg)
+	.set .Lreg, .Lreg+1
+.endr
+.endm
+
 #endif	/* __ASSEMBLER__ */
 
 #endif	/* _ASM_S390_DWARF_H */

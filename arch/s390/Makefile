@@ -103,6 +103,8 @@ endif
 
 # Test CFI features of binutils
 cfi := $(call as-instr,.cfi_startproc\n.cfi_val_offset 15$(comma)-160\n.cfi_endproc,-DCONFIG_AS_CFI_VAL_OFFSET=1)
+cfi += $(call as-instr,.cfi_startproc\n.cfi_escape uleb128(0)\n.cfi_endproc,-DCONFIG_AS_CFI_ESCAPE_LEB128=1)
+cfi += $(call as-instr,.cfi_startproc\n.cfi_escape data8(0)\n.cfi_endproc,-DCONFIG_AS_CFI_ESCAPE_DATA=1)
 
 KBUILD_CFLAGS	+= -mpacked-stack -mbackchain -msoft-float $(cflags-y)
 KBUILD_CFLAGS	+= -pipe -Wno-sign-compare
