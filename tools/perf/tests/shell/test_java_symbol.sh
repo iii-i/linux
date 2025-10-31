@@ -26,21 +26,8 @@ cleanup_files() {
 
 trap cleanup_files exit term int
 
-if [ -e "$PWD/tools/perf/libperf-jvmti.so" ]; then
-	LIBJVMTI=$PWD/tools/perf/libperf-jvmti.so
-elif [ -e "$PWD/libperf-jvmti.so" ]; then
-	LIBJVMTI=$PWD/libperf-jvmti.so
-elif [ -e "$PREFIX/lib64/libperf-jvmti.so" ]; then
-	LIBJVMTI=$PREFIX/lib64/libperf-jvmti.so
-elif [ -e "$PREFIX/lib/libperf-jvmti.so" ]; then
-	LIBJVMTI=$PREFIX/lib/libperf-jvmti.so
-elif [ -e "/usr/lib/linux-tools-$(uname -a | awk '{ print $3 }' | sed -r 's/-generic//')/libperf-jvmti.so" ]; then
-	LIBJVMTI=/usr/lib/linux-tools-$(uname -a | awk '{ print $3 }' | sed -r 's/-generic//')/libperf-jvmti.so
-else
-	echo "Fail to find libperf-jvmti.so"
-	# JVMTI is a build option, skip the test if fail to find lib
-	exit 2
-fi
+# shellcheck source=lib/setup_libjvmti.sh
+. "$(dirname "$0")/lib/setup_libjvmti.sh"
 
 cat <<EOF | perf record -k 1 -o "$PERF_DATA" jshell -s -J"-agentpath:$LIBJVMTI"
 int fib(int x) {
