@@ -788,7 +788,7 @@ jit_detect(const char *mmap_name, pid_t pid, struct nsinfo *nsi, bool *in_pidns)
 	if (!end)
 		return -1;
 
-	*in_pidns = pid == nsinfo__nstgid(nsi);
+	*in_pidns = pid != nsinfo__nstgid(nsi);
 	/*
 	 * pid does not match mmap pid
 	 * pid==0 in system-wide mode (synthesized)
