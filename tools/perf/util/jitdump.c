@@ -788,15 +788,30 @@ jit_detect(const char *mmap_name, pid_t pid, struct nsinfo *nsi, bool *in_pidns)
 	if (!end)
 		return -1;
 
-	*in_pidns = pid == nsinfo__nstgid(nsi);
 	/*
-	 * pid does not match mmap pid
-	 * pid==0 in system-wide mode (synthesized)
+	 * Determine whether the process ran inside a container, and whether it
+	 * mapped jit.dump for profiling purposes or by accident. Record this
+	 * for further use in jit_inject(). The kernel does not provide PID
+	 * namespace information, so we have to resort to guesswork.
 	 *
-	 * If the pid in the file name is equal to the nstgid, then
-	 * the agent ran inside a container and perf outside the
-	 * container, so record it for further use in jit_inject().
+	 * If the process exited and perf had to synthesize the namespace
+	 * information, then it's not possible to have any certainty; be
+	 * aggressive and assume that the process ran inside a container. This
+	 * allows the user to proceed with injection at the cost of a small
+	 * probability of injecting irrelevant data.
+	 *
+	 * If the process' NStgid as observed by perf is different from its
+	 * innermost NStgid, then it must have run inside a container. There is
+	 * a very small probability that NStgids randomly happenned to be the
+	 * same; ignore it.
+	 *
+	 * pid == 0 means system-wide mode, just proceed.
+	 *
+	 * Finally, the most straightforward case: if the PID in the file name
+	 * is equal to the process' NStgid as observed by perf, then it must be
+	 * a match.
 	 */
+	*in_pidns = nsinfo__synthesized(nsi) || pid != nsinfo__nstgid(nsi);
 	if (pid && !(pid2 == pid || *in_pidns))
 		return -1;
 	/*

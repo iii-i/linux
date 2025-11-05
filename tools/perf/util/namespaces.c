@@ -132,6 +132,8 @@ int nsinfo__init(struct nsinfo *nsi)
 
 	rv = nsinfo__get_nspid(&RC_CHK_ACCESS(nsi)->tgid, &RC_CHK_ACCESS(nsi)->nstgid,
 			       &RC_CHK_ACCESS(nsi)->in_pidns, spath);
+	if (rv == 0)
+		RC_CHK_ACCESS(nsi)->synthesized = false;
 
 out:
 	free(newns);
@@ -166,6 +168,7 @@ struct nsinfo *nsinfo__new(pid_t pid)
 	RC_CHK_ACCESS(nsi)->nstgid = pid;
 	nsinfo__clear_need_setns(nsi);
 	RC_CHK_ACCESS(nsi)->in_pidns = false;
+	RC_CHK_ACCESS(nsi)->synthesized = true;
 	/* Init may fail if the process exits while we're trying to look at its
 	 * proc information. In that case, save the pid but don't try to enter
 	 * the namespace.
@@ -197,6 +200,7 @@ struct nsinfo *nsinfo__copy(const struct nsinfo *nsi)
 	RC_CHK_ACCESS(nnsi)->nstgid = nsinfo__nstgid(nsi);
 	RC_CHK_ACCESS(nnsi)->need_setns = nsinfo__need_setns(nsi);
 	RC_CHK_ACCESS(nnsi)->in_pidns = nsinfo__in_pidns(nsi);
+	RC_CHK_ACCESS(nnsi)->synthesized = nsinfo__synthesized(nsi);
 	if (nsinfo__mntns_path(nsi)) {
 		RC_CHK_ACCESS(nnsi)->mntns_path = strdup(nsinfo__mntns_path(nsi));
 		if (!RC_CHK_ACCESS(nnsi)->mntns_path) {
@@ -273,6 +277,11 @@ bool nsinfo__in_pidns(const struct nsinfo *nsi)
 void nsinfo__set_in_pidns(struct nsinfo *nsi)
 {
 	RC_CHK_ACCESS(nsi)->in_pidns = true;
+}
+
+bool nsinfo__synthesized(const struct nsinfo *nsi)
+{
+	return RC_CHK_ACCESS(nsi)->synthesized;
 }
 
 void nsinfo__mountns_enter(struct nsinfo *nsi,

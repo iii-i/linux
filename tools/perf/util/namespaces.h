@@ -38,6 +38,7 @@ DECLARE_RC_STRUCT(nsinfo) {
 	bool			in_pidns;
 	char			*mntns_path;
 	refcount_t		refcnt;
+	bool			synthesized;
 };
 
 struct nscookie {
@@ -60,6 +61,7 @@ pid_t nsinfo__nstgid(const struct nsinfo  *nsi);
 pid_t nsinfo__pid(const struct nsinfo  *nsi);
 bool nsinfo__in_pidns(const struct nsinfo  *nsi);
 void nsinfo__set_in_pidns(struct nsinfo *nsi);
+bool nsinfo__synthesized(const struct nsinfo  *nsi);
 
 void nsinfo__mountns_enter(struct nsinfo *nsi, struct nscookie *nc);
 void nsinfo__mountns_exit(struct nscookie *nc);
