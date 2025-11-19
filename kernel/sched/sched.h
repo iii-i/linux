@@ -1214,6 +1214,9 @@ struct rq {
 	unsigned char		nohz_idle_balance;
 	unsigned char		idle_balance;
 
+#ifdef CONFIG_PARAVIRT
+	bool			push_task_work_done;
+#endif
 	unsigned long		misfit_task_load;
 
 	/* For active balancing */
@@ -3670,6 +3673,12 @@ static inline int __mm_cid_try_get(struct task_struct *t, struct mm_struct *mm)
 
 	return cid;
 }
+
+#ifdef CONFIG_PARAVIRT
+void push_current_from_paravirt_cpu(struct rq *rq);
+#else
+static inline void push_current_from_paravirt_cpu(struct rq *rq) { }
+#endif
 
 /*
  * Save a snapshot of the current runqueue time of this cpu
