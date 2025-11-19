@@ -10949,6 +10949,7 @@ void sched_enq_and_set_task(struct sched_enq_and_set_ctx *ctx)
 #ifdef CONFIG_PARAVIRT
 struct cpumask __cpu_paravirt_mask __read_mostly;
 EXPORT_SYMBOL(__cpu_paravirt_mask);
+DEFINE_STATIC_KEY_FALSE(disable_arch_paravirt_handling);
 
 static DEFINE_PER_CPU(struct cpu_stop_work, pv_push_task_work);
 
