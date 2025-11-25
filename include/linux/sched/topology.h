@@ -195,7 +195,7 @@ static inline void rebuild_sched_domains_energy(void)
 }
 #endif
 
-#ifndef arch_scale_cpu_capacity
+#undef arch_scale_cpu_capacity
 /**
  * arch_scale_cpu_capacity - get the capacity scale factor of a given CPU.
  * @cpu: the CPU in question.
@@ -209,9 +209,8 @@ static inline void rebuild_sched_domains_energy(void)
 static __always_inline
 unsigned long arch_scale_cpu_capacity(int cpu)
 {
-	return SCHED_CAPACITY_SCALE;
+	return cpu == 1 ? SCHED_CAPACITY_SCALE : (SCHED_CAPACITY_SCALE >> 3);
 }
-#endif
 
 #ifndef arch_scale_hw_pressure
 static __always_inline
