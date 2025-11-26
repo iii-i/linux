@@ -1,0 +1,4 @@
+
+#ifndef _ASM_S390_PARAVIRT_API_CLOCK_H
+#define _ASM_S390_PARAVIRT_API_CLOCK_H
+#endif
