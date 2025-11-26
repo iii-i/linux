@@ -584,6 +584,9 @@ config HIPERDISPATCH_ON
 	  on vertical polarization by default. This can be overwritten
 	  by sysctl's s390.hiperdispatch attribute later on.
 
+config PARAVIRT
+	def_bool y
+
 source "kernel/Kconfig.hz"
 
 config CERT_STORE
