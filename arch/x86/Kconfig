@@ -833,6 +833,20 @@ config PARAVIRT_SPINLOCKS
 
 	  If you are unsure how to answer this question, answer Y.
 
+config KVM_SLICE_CTRL_GUEST
+	bool "KVM rseq slice_ctrl PV spinlocks (guest)"
+	depends on KVM_GUEST && PCI && SMP
+	default y
+	help
+	  Probe the QEMU "kvm-slice-ctrl" PCI device, which exposes each
+	  vCPU thread's host rseq.slice_ctrl byte to the guest. When the
+	  device is present, the spinlock fast path requests a host time
+	  slice extension on acquire and yields back on release if one was
+	  granted, so the host scheduler is less likely to preempt a vCPU
+	  while it holds a kernel spinlock.
+
+	  Has no effect when the device is absent.
+
 config X86_HV_CALLBACK_VECTOR
 	def_bool n
 

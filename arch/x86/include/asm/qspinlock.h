@@ -5,6 +5,7 @@
 #include <linux/jump_label.h>
 #include <asm/cpufeature.h>
 #include <asm-generic/qspinlock_types.h>
+#include <asm/kvm-slice-ctrl.h>
 #include <asm/paravirt.h>
 #include <asm/rmwcc.h>
 #ifdef CONFIG_PARAVIRT
@@ -33,6 +34,49 @@ static __always_inline u32 queued_fetch_set_pending_acquire(struct qspinlock *lo
 #ifndef CONFIG_PARAVIRT
 static inline void native_pv_lock_init(void) { }
 #endif
+
+/*
+ * Override the asm-generic lock/trylock fast paths so we can ask the host
+ * scheduler for a time-slice extension as soon as we hold a spinlock. The
+ * unlock-side hook lives in <asm/paravirt-spinlock.h>'s queued_spin_unlock.
+ *
+ * paravirt-spinlock.h provides a static inline queued_spin_lock_slowpath
+ * when PARAVIRT_SPINLOCKS is on; for builds without it, asm-generic's
+ * extern declaration is included afterwards, so add a matching forward
+ * declaration here.
+ */
+#ifndef CONFIG_PARAVIRT_SPINLOCKS
+extern void queued_spin_lock_slowpath(struct qspinlock *lock, u32 val);
+#endif
+
+#define queued_spin_lock queued_spin_lock
+static __always_inline void queued_spin_lock(struct qspinlock *lock)
+{
+	int val = 0;
+
+	if (likely(atomic_try_cmpxchg_acquire(&lock->val, &val,
+					      _Q_LOCKED_VAL))) {
+		kvm_slice_ctrl_request();
+		return;
+	}
+	queued_spin_lock_slowpath(lock, val);
+	kvm_slice_ctrl_request();
+}
+
+#define queued_spin_trylock queued_spin_trylock
+static __always_inline int queued_spin_trylock(struct qspinlock *lock)
+{
+	int val = atomic_read(&lock->val);
+
+	if (unlikely(val))
+		return 0;
+	if (likely(atomic_try_cmpxchg_acquire(&lock->val, &val,
+					      _Q_LOCKED_VAL))) {
+		kvm_slice_ctrl_request();
+		return 1;
+	}
+	return 0;
+}
 
 #include <asm-generic/qspinlock.h>
 

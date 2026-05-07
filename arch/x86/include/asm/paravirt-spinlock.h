@@ -2,6 +2,7 @@
 #ifndef _ASM_X86_PARAVIRT_SPINLOCK_H
 #define _ASM_X86_PARAVIRT_SPINLOCK_H
 
+#include <asm/kvm-slice-ctrl.h>
 #include <asm/paravirt_types.h>
 
 #ifdef CONFIG_SMP
@@ -70,6 +71,7 @@ static inline void queued_spin_unlock(struct qspinlock *lock)
 {
 	kcsan_release();
 	pv_queued_spin_unlock(lock);
+	kvm_slice_ctrl_release();
 }
 
 #define vcpu_is_preempted vcpu_is_preempted
