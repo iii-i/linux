@@ -28,6 +28,7 @@ enum reserved_range_type {
 	RR_CERT_COMP_LIST,
 	RR_MEM_DETECT_EXT,
 	RR_VMEM,
+	RR_MEMMAP,
 	RR_MAX
 };
 
@@ -130,6 +131,7 @@ static inline const char *get_rr_type_name(enum reserved_range_type t)
 	RR_TYPE_NAME(CERT_COMP_LIST);
 	RR_TYPE_NAME(MEM_DETECT_EXT);
 	RR_TYPE_NAME(VMEM);
+	RR_TYPE_NAME(MEMMAP);
 	default:
 		return "UNKNOWN";
 	}

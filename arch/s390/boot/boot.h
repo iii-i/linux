@@ -113,6 +113,8 @@ extern const char kernel_version[];
 extern unsigned long memory_limit;
 extern unsigned long vmalloc_size;
 extern int vmalloc_size_set;
+extern unsigned long memmap_start;
+extern unsigned long memmap_size;
 extern char __boot_data_start[], __boot_data_end[];
 extern char __boot_data_preserved_start[], __boot_data_preserved_end[];
 extern char __vmlinux_relocs_64_start[], __vmlinux_relocs_64_end[];

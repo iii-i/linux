@@ -34,6 +34,8 @@ int __bootdata_preserved(cmma_flag) = 1;
 unsigned long vmalloc_size = VMALLOC_DEFAULT_SIZE;
 unsigned long memory_limit;
 int vmalloc_size_set;
+unsigned long memmap_start;
+unsigned long memmap_size;
 
 static inline int __diag308(unsigned long subcode, void *addr)
 {
@@ -270,6 +272,21 @@ void parse_boot_command_line(void)
 
 		if (!strcmp(param, "mem") && val)
 			memory_limit = round_down(memparse(val, NULL), PAGE_SIZE);
+
+		/* Only memmap=<size>!<addr> and a single region. */
+		if (!strcmp(param, "memmap") && val) {
+			unsigned long size, addr;
+			char *p;
+
+			size = memparse(val, &p);
+			if (*p == '!') {
+				addr = memparse(p + 1, &p);
+				if (!*p && size && addr + size > addr) {
+					memmap_start = addr;
+					memmap_size = size;
+				}
+			}
+		}
 
 		if (!strcmp(param, "vmalloc") && val) {
 			vmalloc_size = round_up(memparse(val, NULL), _SEGMENT_SIZE);
