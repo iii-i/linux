@@ -223,6 +223,24 @@ static void copy_bootdata(void)
 	memcpy((void *)vmlinux.bootdata_preserved_off, __boot_data_preserved_start, vmlinux.bootdata_preserved_size);
 }
 
+/* Loader-placed ranges bypass physmem_alloc_*(); memmap= data they overlap is already gone. */
+static void reserve_memmap(void)
+{
+	unsigned long addr, size;
+	enum reserved_range_type t;
+
+	if (!memmap_size)
+		return;
+	for (t = 0; t < RR_MAX; t++) {
+		if (get_physmem_reserved(t, &addr, &size) &&
+		    intersects(memmap_start, memmap_size, addr, size))
+			boot_panic("memmap= region 0x%016lx-0x%016lx overlaps %s\n",
+				   memmap_start, memmap_start + memmap_size,
+				   get_rr_type_name(t));
+	}
+	physmem_reserve(RR_MEMMAP, memmap_start, memmap_size);
+}
+
 static void kaslr_adjust_relocs(unsigned long min_addr, unsigned long max_addr,
 				unsigned long offset, unsigned long phys_offset)
 {
@@ -531,6 +549,7 @@ void startup_kernel(void)
 	oldmem_data.size = parmarea.oldmem_size;
 
 	read_ipl_report();
+	reserve_memmap();
 	sclp_early_read_info();
 	sclp_early_detect_machine_features();
 	detect_facilities();

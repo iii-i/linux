@@ -50,6 +50,7 @@ early_param(#param, ignore_decompressor_param_##func)
 
 decompressor_handled_param(mem);
 decompressor_handled_param(vmalloc);
+decompressor_handled_param(memmap);
 decompressor_handled_param(dfltcc);
 decompressor_handled_param(facilities);
 decompressor_handled_param(nokaslr);
