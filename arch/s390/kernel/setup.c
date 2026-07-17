@@ -487,6 +487,13 @@ static struct resource __initdata *standard_resources[] = {
 	&bss_resource,
 };
 
+/* Not busy, so that the pmem driver can claim it. */
+static struct resource memmap_pmem_res = {
+	.name = "Persistent Memory (legacy)",
+	.flags = IORESOURCE_MEM,
+	.desc = IORES_DESC_PERSISTENT_MEMORY_LEGACY,
+};
+
 static void __init setup_resources(void)
 {
 	struct resource *res, *std_res, *sub_res;
@@ -546,6 +553,8 @@ static void __init setup_resources(void)
 		insert_resource(&iomem_resource, &crashk_res);
 	}
 #endif
+	if (memmap_pmem_res.end)
+		insert_resource(&iomem_resource, &memmap_pmem_res);
 }
 
 static void __init setup_memory_end(void)
@@ -698,6 +707,25 @@ static void __init free_physmem_info(void)
 
 	if (get_physmem_reserved(RR_MEM_DETECT_EXT, &addr, &size))
 		memblock_phys_free(addr, size);
+}
+
+/* Remove rather than reserve, so that it does not end up in "System RAM". */
+static void __init reserve_memmap(void)
+{
+	unsigned long addr, size;
+
+	if (!get_physmem_reserved(RR_MEMMAP, &addr, &size))
+		return;
+	if (!memblock_is_region_memory(addr, size)) {
+		pr_warn("memmap: %#lx-%#lx is not within online memory, ignoring\n",
+			addr, addr + size - 1);
+		return;
+	}
+	memblock_remove(addr, size);
+	memmap_pmem_res.start = addr;
+	memmap_pmem_res.end = addr + size - 1;
+	pr_info("memmap: reserving %pa-%pa as persistent memory\n",
+		&memmap_pmem_res.start, &memmap_pmem_res.end);
 }
 
 static void __init memblock_add_physmem_info(void)
@@ -951,6 +979,7 @@ void __init setup_arch(char **cmdline_p)
 
 	/* Get information about *all* installed memory */
 	memblock_add_physmem_info();
+	reserve_memmap();
 
 	free_physmem_info();
 	setup_memory_end();
