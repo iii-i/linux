@@ -10,6 +10,7 @@ s390 Architecture
     driver-model
     mm
     monreader
+    pmem
     qeth
     s390dbf
     vfio-ap

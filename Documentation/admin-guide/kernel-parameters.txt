@@ -3984,7 +3984,7 @@ Kernel parameters
 			will be eaten.
 
 	memmap=nn[KMG]!ss[KMG]
-			[KNL,X86,EARLY] Mark specific memory as protected.
+			[KNL,X86,S390,EARLY] Mark specific memory as protected.
 			Region of memory to be used, from ss to ss+nn.
 			The memory region may be marked as e820 type 12 (0xc)
 			and is NVDIMM or ADR memory.
