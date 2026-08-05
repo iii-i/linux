@@ -3,6 +3,7 @@
 #define _ASM_X86_PARAVIRT_SPINLOCK_H
 
 #include <asm/paravirt_types.h>
+#include <linux/kvm_lock_tracking.h>
 
 #ifdef CONFIG_SMP
 #include <asm/spinlock_types.h>
@@ -68,6 +69,7 @@ static inline void queued_spin_lock_slowpath(struct qspinlock *lock, u32 val)
 
 static inline void queued_spin_unlock(struct qspinlock *lock)
 {
+	kvm_lock_tracking_dec();
 	kcsan_release();
 	pv_queued_spin_unlock(lock);
 }

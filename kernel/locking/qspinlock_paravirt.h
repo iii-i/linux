@@ -77,6 +77,8 @@ struct pv_node {
  * queued lock (no lock starvation) and an unfair lock (good performance
  * on not heavily contended locks).
  */
+/* Drop the KVM lock-tracking trylock override (asm/qspinlock.h) here. */
+#undef queued_spin_trylock
 #define queued_spin_trylock(l)	pv_hybrid_queued_unfair_trylock(l)
 static inline bool pv_hybrid_queued_unfair_trylock(struct qspinlock *lock)
 {
