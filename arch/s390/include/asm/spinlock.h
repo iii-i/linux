@@ -11,6 +11,7 @@
 #define __ASM_SPINLOCK_H
 
 #include <linux/smp.h>
+#include <linux/kvm_lock_tracking.h>
 #include <asm/atomic_ops.h>
 #include <asm/barrier.h>
 #include <asm/processor.h>
@@ -83,17 +84,23 @@ static inline void arch_spin_lock(arch_spinlock_t *lp)
 {
 	if (!arch_spin_trylock_once(lp))
 		arch_spin_lock_wait(lp);
+	kvm_lock_tracking_inc();
 }
 
 static inline int arch_spin_trylock(arch_spinlock_t *lp)
 {
+	int ret = 1;
+
 	if (!arch_spin_trylock_once(lp))
-		return arch_spin_trylock_retry(lp);
-	return 1;
+		ret = arch_spin_trylock_retry(lp);
+	if (ret)
+		kvm_lock_tracking_inc();
+	return ret;
 }
 
 static inline void arch_spin_unlock(arch_spinlock_t *lp)
 {
+	kvm_lock_tracking_dec();
 	typecheck(int, lp->lock);
 	kcsan_release();
 	asm_inline volatile(
