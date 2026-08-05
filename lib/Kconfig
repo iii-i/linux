@@ -6,6 +6,25 @@
 config BINARY_PRINTF
 	def_bool n
 
+config KVM_GUEST_LOCK_TRACKING
+	bool "KVM guest lock-holder tracking (measurement)"
+	depends on (KVM_GUEST || S390) && SMP
+	default n
+	help
+	  Maintain a per-CPU count of the raw spinlocks currently held by this
+	  guest and hand the host the guest-physical address of each counter so
+	  it can sample them and measure lock-holder preemption: time a vCPU
+	  spends descheduled while holding a guest kernel spinlock.
+
+	  The increment/decrement are inlined onto the raw-spinlock fast path
+	  (one per-CPU increment per acquire) from the arch spinlock headers.
+	  Counting is unconditional when built in, so acquire and release are
+	  balanced and the count is never negative by construction. Build it out
+	  for zero cost.
+
+	  This is measurement instrumentation, not a mitigation: the host only
+	  reads the counters. If unsure, say N.
+
 menu "Library routines"
 
 config LINEAR_RANGES
