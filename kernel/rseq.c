@@ -71,6 +71,7 @@
 #define RSEQ_BUILD_SLOW_PATH
 
 #include <linux/debugfs.h>
+#include <linux/delay.h>
 #include <linux/hrtimer.h>
 #include <linux/percpu.h>
 #include <linux/prctl.h>
@@ -921,6 +922,49 @@ static const struct file_operations slice_ext_ops = {
 	.release	= single_release,
 };
 
+/* Debug selftest: exercise the KVM grant on `current` with no guest. */
+static int rseq_kvm_selftest_show(struct seq_file *m, void *p)
+{
+	int i, ret_true = 0, granted_ok = 0, end_ok = 0, cap = 0;
+
+	for (i = 0; i < 1000; i++) {
+		preempt_disable();
+		current->rseq.slice.state.granted = false;
+		if (kvm_grant_slice_extension_for_current(true, 0))
+			ret_true++;
+		if (current->rseq.slice.state.granted)
+			granted_ok++;
+		kvm_slice_extension_end_for_current();
+		if (!current->rseq.slice.state.granted)
+			end_ok++;
+		preempt_enable();
+	}
+
+	preempt_disable();
+	current->rseq.slice.state.granted = false;
+	local_irq_disable();
+	clear_tsk_need_resched(current);
+	clear_preempt_need_resched();
+	local_irq_enable();
+	kvm_grant_slice_extension_for_current(true, 0);
+	udelay(rseq_slice_ext_nsecs / 1000 + 6);
+	cap = need_resched() ? 1 : 0;
+	kvm_slice_extension_end_for_current();
+	local_irq_disable();
+	clear_tsk_need_resched(current);
+	clear_preempt_need_resched();
+	local_irq_enable();
+	preempt_enable();
+
+	seq_printf(m, "RSEQ_KVM_SELFTEST loops=1000 ret_true=%d granted_ok=%d end_ok=%d cap_fired=%d\n",
+		   ret_true, granted_ok, end_ok, cap);
+	seq_printf(m, "VERDICT=%s\n",
+		   (ret_true == 1000 && granted_ok == 1000 && end_ok == 1000 && cap == 1) ?
+		   "PASS" : "FAIL");
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(rseq_kvm_selftest);
+
 static int kvm_slice_grants_show(struct seq_file *m, void *p)
 {
 	seq_printf(m, "reg=%ld attempts=%ld grants=%ld\n",
@@ -934,6 +978,7 @@ DEFINE_SHOW_ATTRIBUTE(kvm_slice_grants);
 static void rseq_slice_ext_init(struct dentry *root_dir)
 {
 	debugfs_create_file("slice_ext_nsec", 0644, root_dir, NULL, &slice_ext_ops);
+	debugfs_create_file("kvm_slice_selftest", 0444, root_dir, NULL, &rseq_kvm_selftest_fops);
 	debugfs_create_file("kvm_slice_grants", 0444, root_dir, NULL, &kvm_slice_grants_fops);
 }
 
