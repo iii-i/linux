@@ -571,6 +571,15 @@ static const unsigned int rseq_slice_ext_nsecs_min =  5 * NSEC_PER_USEC;
 static const unsigned int rseq_slice_ext_nsecs_max = 50 * NSEC_PER_USEC;
 unsigned int rseq_slice_ext_nsecs __read_mostly = rseq_slice_ext_nsecs_min;
 static DEFINE_PER_CPU(struct slice_timer, slice_timer);
+static atomic_long_t kvm_slice_reg = ATOMIC_LONG_INIT(0);
+static atomic_long_t kvm_slice_attempts = ATOMIC_LONG_INIT(0);
+static atomic_long_t kvm_slice_grants = ATOMIC_LONG_INIT(0);
+
+void kvm_slice_note_registration(void)
+{
+	atomic_long_inc(&kvm_slice_reg);
+}
+EXPORT_SYMBOL_GPL(kvm_slice_note_registration);
 DEFINE_STATIC_KEY_TRUE(rseq_slice_extension_key);
 
 /*
@@ -648,6 +657,63 @@ static void rseq_cancel_slice_extension_timer(void)
 	if (st->cookie == current)
 		hrtimer_try_to_cancel(&st->timer);
 }
+
+/*
+ * Grant a bounded slice extension to the current vCPU thread on the
+ * return-to-guest path. Unlike __rseq_grant_slice_extension() the request
+ * comes from KVM (the guest-owned lock-holder counter), not the thread's own
+ * rseq user page, and neither the user_irq gate nor the syscall-entry give-back
+ * apply. The cap hrtimer is the sole enforcement; the grant is one-shot until
+ * kvm_slice_extension_end_for_current() drops it on the next deschedule.
+ *
+ * @request:	KVM's read of the guest predicate (lock-holder count > 0).
+ * @work:	pending xfer-to-guest TIF work; only a bare reschedule may be
+ *		deferred, anything else must preempt.
+ *
+ * Returns true if the pending reschedule was deferred (re-enter the guest).
+ */
+bool kvm_grant_slice_extension_for_current(bool request, unsigned long work)
+{
+	struct task_struct *curr = current;
+	struct slice_timer *st;
+	unsigned long flags;
+
+	atomic_long_inc(&kvm_slice_attempts);
+	if (!rseq_slice_extension_enabled() || !request)
+		return false;
+	if (curr->rseq.slice.state.granted)
+		return false;
+
+	local_irq_save(flags);
+
+	curr->rseq.slice.state.granted = true;
+	curr->rseq.slice.expires = data_race(rseq_slice_ext_nsecs) +
+				   ktime_get_mono_fast_ns();
+	clear_tsk_need_resched(curr);
+	clear_preempt_need_resched();
+
+	st = this_cpu_ptr(&slice_timer);
+	st->cookie = curr;
+	hrtimer_start(&st->timer, curr->rseq.slice.expires,
+		      HRTIMER_MODE_ABS_PINNED_HARD);
+
+	local_irq_restore(flags);
+
+	rseq_stat_inc(rseq_stats.s_granted);
+	atomic_long_inc(&kvm_slice_grants);
+	return true;
+}
+EXPORT_SYMBOL_GPL(kvm_grant_slice_extension_for_current);
+
+/* Invoked from KVM's sched-out notifier: a grant must not survive a deschedule. */
+void kvm_slice_extension_end_for_current(void)
+{
+	if (!current->rseq.slice.state.granted)
+		return;
+	rseq_cancel_slice_extension_timer();
+	rseq_slice_clear_grant(current);
+}
+EXPORT_SYMBOL_GPL(kvm_slice_extension_end_for_current);
 
 static inline void rseq_slice_set_need_resched(struct task_struct *curr)
 {
@@ -855,9 +921,20 @@ static const struct file_operations slice_ext_ops = {
 	.release	= single_release,
 };
 
+static int kvm_slice_grants_show(struct seq_file *m, void *p)
+{
+	seq_printf(m, "reg=%ld attempts=%ld grants=%ld\n",
+		   atomic_long_read(&kvm_slice_reg),
+		   atomic_long_read(&kvm_slice_attempts),
+		   atomic_long_read(&kvm_slice_grants));
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(kvm_slice_grants);
+
 static void rseq_slice_ext_init(struct dentry *root_dir)
 {
 	debugfs_create_file("slice_ext_nsec", 0644, root_dir, NULL, &slice_ext_ops);
+	debugfs_create_file("kvm_slice_grants", 0444, root_dir, NULL, &kvm_slice_grants_fops);
 }
 
 static int __init rseq_slice_cmdline(char *str)
