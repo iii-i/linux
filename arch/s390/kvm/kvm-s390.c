@@ -34,6 +34,8 @@
 #include <linux/string.h>
 #include <linux/pgtable.h>
 #include <linux/mmu_notifier.h>
+#include <linux/rseq.h>
+#include <linux/kvm_lock_tracking.h>
 
 #include <asm/access-regs.h>
 #include <asm/asm-offsets.h>
@@ -4782,6 +4784,27 @@ int noinstr kvm_s390_enter_exit_sie(struct kvm_s390_sie_block *scb,
 }
 
 #define PSW_INT_MASK (PSW_MASK_EXT | PSW_MASK_IO | PSW_MASK_MCHECK)
+/* Mirror of the x86 grant; SRCU is not held at the s390 xfer check, so take it. */
+static void kvm_slice_ext_maybe_grant(struct kvm_vcpu *vcpu)
+{
+	unsigned long work = read_thread_flags();
+	long count;
+	int idx;
+
+	if (!(work & (_TIF_NEED_RESCHED | _TIF_NEED_RESCHED_LAZY)))
+		return;
+	if (work & (_TIF_SIGPENDING | _TIF_NOTIFY_SIGNAL))
+		return;
+	if (!vcpu->arch.lock_counter.gpa)
+		return;
+	idx = srcu_read_lock(&vcpu->kvm->srcu);
+	if (!kvm_read_guest_offset_cached(vcpu->kvm, &vcpu->arch.lock_counter.cache,
+					  &count, offsetof(struct kvm_lock_counter, count),
+					  sizeof(count)) && count > 0)
+		kvm_grant_slice_extension_for_current(true, work);
+	srcu_read_unlock(&vcpu->kvm->srcu, idx);
+}
+
 static int __vcpu_run(struct kvm_vcpu *vcpu)
 {
 	int rc, sie_return;
@@ -4815,6 +4838,7 @@ xfer_to_guest_mode_check:
 		xfer_to_guest_mode_prepare();
 		if (xfer_to_guest_mode_work_pending()) {
 			local_irq_enable();
+			kvm_slice_ext_maybe_grant(vcpu);
 			rc = kvm_xfer_to_guest_mode_handle_work(vcpu);
 			if (rc)
 				break;

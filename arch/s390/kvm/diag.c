@@ -10,6 +10,9 @@
 
 #include <linux/kvm.h>
 #include <linux/kvm_host.h>
+#include <linux/kvm_lock_tracking.h>
+#include <linux/kvm_para.h>
+#include <linux/rseq.h>
 #include <asm/gmap_helpers.h>
 #include <asm/virtio-ccw.h>
 #include "kvm-s390.h"
@@ -170,6 +173,18 @@ static int __diag_time_slice_end(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static int __diag_lock_tracking_register(struct kvm_vcpu *vcpu)
+{
+	gpa_t gpa = vcpu->run->s.regs.gprs[2];
+
+	if (kvm_gfn_to_hva_cache_init(vcpu->kvm, &vcpu->arch.lock_counter.cache,
+				      gpa, sizeof(struct kvm_lock_counter)))
+		return -EINVAL;
+	vcpu->arch.lock_counter.gpa = gpa;
+	kvm_slice_note_registration();
+	return 0;
+}
+
 static int forward_cnt;
 static unsigned long cur_slice;
 
@@ -268,6 +283,8 @@ static int __diag_virtio_hypercall(struct kvm_vcpu *vcpu)
 	int ret;
 
 	vcpu->stat.instruction_diagnose_500++;
+	if (vcpu->run->s.regs.gprs[1] == KVM_HC_LOCK_TRACKING_REGISTER)
+		return __diag_lock_tracking_register(vcpu);
 	/* No virtio-ccw notification? Get out quickly. */
 	if (!vcpu->kvm->arch.css_support ||
 	    (vcpu->run->s.regs.gprs[1] != KVM_S390_VIRTIO_CCW_NOTIFY))

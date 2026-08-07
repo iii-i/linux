@@ -443,6 +443,11 @@ struct kvm_vcpu_arch {
 	struct kvm_s390_pv_vcpu pv;
 	union diag318_info diag318_info;
 	struct kvm_s390_mmu_cache *mc;
+	/* Registered guest lock-holder counter, for the slice extension. */
+	struct {
+		gpa_t gpa;
+		struct gfn_to_hva_cache cache;
+	} lock_counter;
 };
 
 struct kvm_vm_stat {
