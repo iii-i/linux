@@ -6391,6 +6391,8 @@ static void kvm_sched_out(struct preempt_notifier *pn,
 {
 	struct kvm_vcpu *vcpu = preempt_notifier_to_vcpu(pn);
 
+	kvm_slice_extension_end_for_current();
+
 	WRITE_ONCE(vcpu->scheduled_out, true);
 
 	if (task_is_runnable(current) && vcpu->wants_to_run) {
