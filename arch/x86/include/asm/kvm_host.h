@@ -985,6 +985,12 @@ struct kvm_vcpu_arch {
 		struct gfn_to_hva_cache cache;
 	} st;
 
+	/* Registered guest lock-holder counter, for the slice extension. */
+	struct {
+		gpa_t gpa;
+		struct gfn_to_hva_cache cache;
+	} lock_counter;
+
 	u64 l1_tsc_offset;
 	u64 tsc_offset; /* current tsc offset */
 	u64 last_guest_tsc;

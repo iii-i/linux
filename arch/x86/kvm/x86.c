@@ -18,6 +18,8 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/kvm_host.h>
+#include <linux/kvm_lock_tracking.h>
+#include <linux/rseq.h>
 #include "irq.h"
 #include "ioapic.h"
 #include "mmu.h"
@@ -10396,6 +10398,40 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
 	return kvm_skip_emulated_instruction(vcpu);
 }
 
+static int kvm_lock_tracking_register(struct kvm_vcpu *vcpu, gpa_t gpa)
+{
+	if (kvm_gfn_to_hva_cache_init(vcpu->kvm, &vcpu->arch.lock_counter.cache,
+				      gpa, sizeof(struct kvm_lock_counter)))
+		return -KVM_EINVAL;
+	vcpu->arch.lock_counter.gpa = gpa;
+	kvm_slice_note_registration();
+	return 0;
+}
+
+/* Defer a pending reschedule (clear NEED_RESCHED, arm the cap) if the guest holds
+ * a lock. Grant only when a reschedule is actually pending and nothing that must
+ * exit to userspace (a signal) is: TIF_RSEQ/USER_RETURN_NOTIFY are not xfer work
+ * and must not block a grant. The xfer handler still runs afterwards. */
+static void kvm_slice_ext_maybe_grant(struct kvm_vcpu *vcpu)
+{
+	unsigned long work = read_thread_flags();
+	long count;
+
+	if (!(work & (_TIF_NEED_RESCHED | _TIF_NEED_RESCHED_LAZY)))
+		return;
+	if (work & (_TIF_SIGPENDING | _TIF_NOTIFY_SIGNAL))
+		return;
+	if (!vcpu->arch.lock_counter.gpa)
+		return;
+	if (kvm_read_guest_offset_cached(vcpu->kvm, &vcpu->arch.lock_counter.cache,
+					 &count, offsetof(struct kvm_lock_counter, count),
+					 sizeof(count)))
+		return;
+	if (count <= 0)
+		return;
+	kvm_grant_slice_extension_for_current(true, work);
+}
+
 int ____kvm_emulate_hypercall(struct kvm_vcpu *vcpu, int cpl,
 			      int (*complete_hypercall)(struct kvm_vcpu *))
 {
@@ -10456,6 +10492,9 @@ int ____kvm_emulate_hypercall(struct kvm_vcpu *vcpu, int cpl,
 
 		kvm_sched_yield(vcpu, a0);
 		ret = 0;
+		break;
+	case KVM_HC_LOCK_TRACKING_REGISTER:
+		ret = kvm_lock_tracking_register(vcpu, a0);
 		break;
 	case KVM_HC_MAP_GPA_RANGE: {
 		u64 gpa = a0, npages = a1, attrs = a2;
@@ -11728,6 +11767,7 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 		}
 
 		if (__xfer_to_guest_mode_work_pending()) {
+			kvm_slice_ext_maybe_grant(vcpu);
 			kvm_vcpu_srcu_read_unlock(vcpu);
 			r = kvm_xfer_to_guest_mode_handle_work(vcpu);
 			kvm_vcpu_srcu_read_lock(vcpu);
