@@ -9,6 +9,8 @@
 #include <linux/debugfs.h>
 #include <linux/export.h>
 #include <linux/init.h>
+#include <linux/jump_label.h>
+#include <linux/kstrtox.h>
 #include <linux/kvm_para.h>
 #include <linux/percpu.h>
 #include <linux/printk.h>
@@ -25,6 +27,10 @@
 DEFINE_PER_CPU_ALIGNED(struct kvm_lock_counter, kvm_lock_counter);
 EXPORT_PER_CPU_SYMBOL(kvm_lock_counter);
 
+/* Off unless the guest opted in with kvm_lock_tracking=; gates the fast path too. */
+DEFINE_STATIC_KEY_FALSE(kvm_lock_tracking_key);
+EXPORT_SYMBOL(kvm_lock_tracking_key);
+
 static void kvm_lock_tracking_register_this_cpu(void)
 {
 	struct kvm_lock_counter *c = this_cpu_ptr(&kvm_lock_counter);
@@ -40,8 +46,10 @@ static void kvm_lock_tracking_register_this_cpu(void)
 
 	/*
 	 * Publish the address via the KVM hypercall (VMCALL on x86, DIAG 0x500 on
-	 * s390). An unmodified host returns -KVM_ENOSYS / -EOPNOTSUPP and the guest
-	 * proceeds without tracking.
+	 * s390). Only reached when the feature was opted in (kvm_lock_tracking=),
+	 * because an unsupporting host does not respond uniformly: x86 returns
+	 * -KVM_ENOSYS, but s390 raises a specification exception on the DIAG. Enable
+	 * it only on a host known to handle the hypercall.
 	 */
 #if defined(CONFIG_X86) || defined(CONFIG_S390)
 	{
@@ -88,10 +96,22 @@ static void __init kvm_lock_tracking_debugfs_init(void)
 static inline void kvm_lock_tracking_debugfs_init(void) { }
 #endif
 
+static int __init kvm_lock_tracking_setup(char *str)
+{
+	bool on;
+
+	if (!kstrtobool(str, &on) && on)
+		static_branch_enable(&kvm_lock_tracking_key);
+	return 1;
+}
+__setup("kvm_lock_tracking=", kvm_lock_tracking_setup);
+
 static int __init kvm_lock_tracking_init(void)
 {
 	int ret;
 
+	if (!static_branch_unlikely(&kvm_lock_tracking_key))
+		return 0;
 	if (!kvm_para_available())
 		return 0;
 

@@ -5,6 +5,7 @@
 #ifdef CONFIG_KVM_GUEST_LOCK_TRACKING
 
 #include <linux/cache.h>
+#include <linux/jump_label.h>
 #include <linux/percpu-defs.h>
 #include <linux/types.h>
 
@@ -16,9 +17,12 @@
  *
  * inc/dec are inlined onto the raw-spinlock fast path from the arch spinlock
  * headers, not generic <linux/spinlock.h>, which cannot reach this_cpu_*()
- * without an include cycle. Counting is unconditional, so inc/dec stay balanced
- * and the count is >= 0 by construction.
+ * without an include cycle. Gated by a static key (off unless the guest opted in
+ * via kvm_lock_tracking=), so inc/dec are patched out when the feature is off;
+ * the branch is balanced, keeping the count >= 0 by construction.
  */
+
+DECLARE_STATIC_KEY_FALSE(kvm_lock_tracking_key);
 
 struct kvm_lock_counter {
 	u32 magic;
@@ -32,12 +36,14 @@ DECLARE_PER_CPU_ALIGNED(struct kvm_lock_counter, kvm_lock_counter);
 
 static __always_inline void kvm_lock_tracking_inc(void)
 {
-	this_cpu_inc(kvm_lock_counter.count);
+	if (static_branch_unlikely(&kvm_lock_tracking_key))
+		this_cpu_inc(kvm_lock_counter.count);
 }
 
 static __always_inline void kvm_lock_tracking_dec(void)
 {
-	this_cpu_dec(kvm_lock_counter.count);
+	if (static_branch_unlikely(&kvm_lock_tracking_key))
+		this_cpu_dec(kvm_lock_counter.count);
 }
 
 #else /* !CONFIG_KVM_GUEST_LOCK_TRACKING */
