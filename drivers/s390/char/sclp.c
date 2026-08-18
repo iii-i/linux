@@ -1418,12 +1418,48 @@ static const struct file_operations sclp_fuzz_ctl_fops = {
 	.llseek = default_llseek,
 };
 
+/*
+ * A deliberately vulnerable event receiver -- a test artifact, not a real
+ * handler.  It trusts the hypervisor-supplied evbuf length and copies that many
+ * bytes into a fixed 16-byte heap object.  A malicious length > 16, which the
+ * host can author freely, overflows the slab object; KASAN reports it.  This is
+ * the bug-oracle end-to-end check: attacker-controlled bytes in, KASAN out.  It
+ * models the trust-the-length bug class the fuzzer hunts for.
+ */
+#define SCLP_FUZZ_PLANTED_TYPE 0x30
+
+static u8 sclp_fuzz_sink;
+
+static void sclp_fuzz_planted_receiver(struct evbuf_header *evbuf)
+{
+	u8 *buf = kmalloc(16, GFP_ATOMIC);
+
+	if (!buf)
+		return;
+	memcpy(buf, evbuf, evbuf->length);	/* PLANTED BUG: length is attacker-controlled */
+	sclp_fuzz_sink ^= buf[0];
+	kfree(buf);
+}
+
+static struct sclp_register sclp_fuzz_receiver = {
+	.receive_mask = SCLP_EVTYP_MASK(SCLP_FUZZ_PLANTED_TYPE),
+	.receiver_fn = sclp_fuzz_planted_receiver,
+};
+
 static int __init sclp_fuzz_init(void)
 {
 	sclp_ctl_sccb = (void *)__get_free_page(GFP_KERNEL | GFP_DMA);
 	if (sclp_ctl_sccb)
 		debugfs_create_file("sclp_ctl", 0600, NULL, NULL,
 				    &sclp_fuzz_ctl_fops);
+	/*
+	 * The planted bug is opt-in: only wire up the vulnerable receiver when
+	 * the cmdline asks for it, so coverage-guided runs can explore the real
+	 * parser indefinitely instead of tripping it at once.
+	 */
+	if (strstr(boot_command_line, "plantbug") &&
+	    sclp_register(&sclp_fuzz_receiver))
+		pr_warn("sclp-fuzz: planted receiver registration failed\n");
 	return 0;
 }
 late_initcall(sclp_fuzz_init);
