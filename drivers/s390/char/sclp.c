@@ -1384,7 +1384,44 @@ arch_initcall(sclp_initcall);
  */
 #define SCLP_FUZZ_CTL_CMD 0x00ff0001
 
+/* Control-block layout shared with the host: op is a big-endian u32 at offset 8
+ * (just past the SCCB header); anything the host reads back rides after the
+ * 32-byte fixed prefix. */
+#define SCLP_FUZZ_CTL_OP_OFF	8
+#define SCLP_FUZZ_CTL_PAYLOAD	32
+#define SCLP_FUZZ_OP_READY	1
+#define SCLP_FUZZ_MAX_COV_PAGES	256
+
 static void *sclp_ctl_sccb;	/* DMA page reused across the whole loop */
+
+/*
+ * On a READY control message, advertise the kcov coverage buffer to the host
+ * *from the kernel*: resolve the buffer's guest-physical pages (the kernel owns
+ * them, so no /proc/self/pagemap and no CAP_SYS_ADMIN in userspace) and pack
+ * {npages, words, gpa[]} into the SCCB after the fixed prefix. The host then
+ * reads guest coverage directly, off the fuzzed SCLP data path.
+ */
+static void sclp_fuzz_advertise_cov(struct sccb_header *sccb)
+{
+	phys_addr_t phys[SCLP_FUZZ_MAX_COV_PAGES];
+	__u64 *pub = (__u64 *)((u8 *)sccb + SCLP_FUZZ_CTL_PAYLOAD);
+	u32 op = *(u32 *)((u8 *)sccb + SCLP_FUZZ_CTL_OP_OFF);
+	unsigned int words = 0;
+	int n, i;
+
+	if (op != SCLP_FUZZ_OP_READY)
+		return;
+	n = kcov_remote_area_phys(kcov_remote_handle(KCOV_SUBSYSTEM_COMMON,
+						     SCLP_FUZZ_KCOV_INSTANCE),
+				  phys, SCLP_FUZZ_MAX_COV_PAGES, &words);
+	if (n <= 0)
+		return;
+	pub[0] = n;
+	pub[1] = words;
+	for (i = 0; i < n; i++)
+		pub[2 + i] = phys[i];
+	sccb->length = SCLP_FUZZ_CTL_PAYLOAD + (2 + n) * sizeof(__u64);
+}
 
 static ssize_t sclp_fuzz_ctl_write(struct file *file, const char __user *ubuf,
 				   size_t count, loff_t *ppos)
@@ -1400,6 +1437,8 @@ static ssize_t sclp_fuzz_ctl_write(struct file *file, const char __user *ubuf,
 	/* SCLP requires a plausible length; the control block is small. */
 	if (sccb->length < sizeof(struct sccb_header))
 		sccb->length = PAGE_SIZE;
+
+	sclp_fuzz_advertise_cov(sccb);
 
 	rc = sclp_sync_request(SCLP_FUZZ_CTL_CMD, sccb);
 	/* On return the host has written its reply into the same SCCB. */
