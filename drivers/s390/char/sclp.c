@@ -28,6 +28,30 @@
 
 #define SCLP_HEADER		"sclp: "
 
+#if defined(CONFIG_KCOV) && defined(CONFIG_DEBUG_FS)
+#include <linux/kcov.h>
+/* Common-handle instance id shared with the userspace coverage collector. */
+#define SCLP_FUZZ_KCOV_INSTANCE 0x1
+/*
+ * Bracket a region of the sclp driver so its edges accrue into a kcov-remote
+ * common-handle section. Used both by the process-context fuzzing knobs below
+ * and by the real interrupt-driven dispatch path (hardirq); the latter needs
+ * hardirq remote-coverage support in kcov.
+ */
+static inline void sclp_fuzz_cov_start(void)
+{
+	kcov_remote_start_common((struct kcov_common_handle_id){
+		.val = SCLP_FUZZ_KCOV_INSTANCE });
+}
+static inline void sclp_fuzz_cov_stop(void)
+{
+	kcov_remote_stop();
+}
+#else
+static inline void sclp_fuzz_cov_start(void) {}
+static inline void sclp_fuzz_cov_stop(void) {}
+#endif
+
 struct sclp_trace_entry {
 	char id[4] __nonstring;
 	u32 a;
@@ -1315,3 +1339,92 @@ static __init int sclp_initcall(void)
 }
 
 arch_initcall(sclp_initcall);
+
+#if defined(CONFIG_KCOV) && defined(CONFIG_DEBUG_FS)
+/*
+ * SCLP host->guest fuzzing scaffolding.
+ *
+ * Under Secure Execution the hypervisor is untrusted, so every byte it places
+ * in an SCCB is attacker-controlled.  The event-buffer dispatch loop
+ * (sclp_dispatch_evbufs), reached from the real Read-Event-Data completion in
+ * the external interrupt handler (hardirq), is the core parser of that data.
+ *
+ * The fuzzer is host-driven: QEMU authors each malformed Read-Event-Data
+ * response and reads coverage directly from the guest's kcov buffer, while the
+ * guest's own SCLP driver keeps issuing reads from its interrupt path. So the
+ * guest side needs only two things, plus the interrupt-handler kcov annotation
+ * (see sclp_interrupt_handler()):
+ *
+ *  - sclp_ctl:          a reserved SCLP command used once at startup to
+ *                       advertise the kcov buffer's guest-physical pages to the
+ *                       host, kept off the fuzzed Read-Event-Data data path;
+ *  - a planted, deliberately vulnerable receiver (opt-in via "plantbug") so the
+ *                       end-to-end crash-detection path can be exercised.
+ */
+#include <linux/debugfs.h>
+#include <linux/uaccess.h>
+#include <linux/slab.h>
+
+/*
+ * Rendezvous / control channel for host-driven fuzzing: a reserved SCLP
+ * command word that the host intercepts and never forwards to real emulation.
+ * It carries a small control block between the guest agent and the host, kept
+ * deliberately separate from the Read-Event-Data data path so a malformed
+ * injected event can never corrupt the handshake.
+ */
+#define SCLP_FUZZ_CTL_CMD 0x00ff0001
+
+static void *sclp_ctl_sccb;	/* DMA page reused across the whole loop */
+
+static ssize_t sclp_fuzz_ctl_write(struct file *file, const char __user *ubuf,
+				   size_t count, loff_t *ppos)
+{
+	struct sccb_header *sccb = sclp_ctl_sccb;
+	int rc;
+
+	if (count > PAGE_SIZE)
+		count = PAGE_SIZE;
+	clear_page(sccb);
+	if (copy_from_user(sccb, ubuf, count))
+		return -EFAULT;
+	/* SCLP requires a plausible length; the control block is small. */
+	if (sccb->length < sizeof(struct sccb_header))
+		sccb->length = PAGE_SIZE;
+
+	rc = sclp_sync_request(SCLP_FUZZ_CTL_CMD, sccb);
+	/* On return the host has written its reply into the same SCCB. */
+	return rc ? rc : count;
+}
+
+static ssize_t sclp_fuzz_ctl_read(struct file *file, char __user *ubuf,
+				  size_t count, loff_t *ppos)
+{
+	struct sccb_header *sccb = sclp_ctl_sccb;
+
+	if (*ppos >= PAGE_SIZE)
+		return 0;
+	if (count > PAGE_SIZE - *ppos)
+		count = PAGE_SIZE - *ppos;
+	if (copy_to_user(ubuf, (char *)sccb + *ppos, count))
+		return -EFAULT;
+	*ppos += count;
+	return count;
+}
+
+static const struct file_operations sclp_fuzz_ctl_fops = {
+	.owner = THIS_MODULE,
+	.write = sclp_fuzz_ctl_write,
+	.read = sclp_fuzz_ctl_read,
+	.llseek = default_llseek,
+};
+
+static int __init sclp_fuzz_init(void)
+{
+	sclp_ctl_sccb = (void *)__get_free_page(GFP_KERNEL | GFP_DMA);
+	if (sclp_ctl_sccb)
+		debugfs_create_file("sclp_ctl", 0600, NULL, NULL,
+				    &sclp_fuzz_ctl_fops);
+	return 0;
+}
+late_initcall(sclp_fuzz_init);
+#endif /* CONFIG_KCOV && CONFIG_DEBUG_FS */
