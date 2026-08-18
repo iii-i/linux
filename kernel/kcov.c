@@ -88,15 +88,20 @@ static DEFINE_SPINLOCK(kcov_remote_lock);
 static DEFINE_HASHTABLE(kcov_remote_map, 4);
 static struct list_head kcov_remote_areas = LIST_HEAD_INIT(kcov_remote_areas);
 
+/* Saved coverage-collection state of an interrupted context. */
+struct kcov_saved {
+	unsigned int		mode;
+	unsigned int		size;
+	void			*area;
+	struct kcov		*kcov;
+	int			sequence;
+};
+
 struct kcov_percpu_data {
 	void			*irq_area;
 	local_lock_t		lock;
 
-	unsigned int		saved_mode;
-	unsigned int		saved_size;
-	void			*saved_area;
-	struct kcov		*saved_kcov;
-	int			saved_sequence;
+	struct kcov_saved	saved_softirq;
 };
 
 static DEFINE_PER_CPU(struct kcov_percpu_data, kcov_percpu_data) = {
@@ -833,38 +838,34 @@ static inline bool kcov_mode_enabled(unsigned int mode)
 	return (mode & ~KCOV_IN_CTXSW) != KCOV_MODE_DISABLED;
 }
 
-static void kcov_remote_softirq_start(struct task_struct *t)
+/*
+ * Save the coverage-collection state of the context an interrupt preempted, so
+ * the interrupt can collect into its own area and restore on the way out.
+ */
+static void kcov_ctx_save(struct task_struct *t, struct kcov_saved *saved)
 	__must_hold(&kcov_percpu_data.lock)
 {
-	struct kcov_percpu_data *data = this_cpu_ptr(&kcov_percpu_data);
 	unsigned int mode;
 
 	mode = READ_ONCE(t->kcov_mode);
 	barrier();
 	if (kcov_mode_enabled(mode)) {
-		data->saved_mode = mode;
-		data->saved_size = t->kcov_size;
-		data->saved_area = t->kcov_area;
-		data->saved_sequence = t->kcov_sequence;
-		data->saved_kcov = t->kcov;
+		saved->mode = mode;
+		saved->size = t->kcov_size;
+		saved->area = t->kcov_area;
+		saved->sequence = t->kcov_sequence;
+		saved->kcov = t->kcov;
 		kcov_stop(t);
 	}
 }
 
-static void kcov_remote_softirq_stop(struct task_struct *t)
+static void kcov_ctx_restore(struct task_struct *t, struct kcov_saved *saved)
 	__must_hold(&kcov_percpu_data.lock)
 {
-	struct kcov_percpu_data *data = this_cpu_ptr(&kcov_percpu_data);
-
-	if (data->saved_kcov) {
-		kcov_start(t, data->saved_kcov, data->saved_size,
-				data->saved_area, data->saved_mode,
-				data->saved_sequence);
-		data->saved_mode = 0;
-		data->saved_size = 0;
-		data->saved_area = NULL;
-		data->saved_sequence = 0;
-		data->saved_kcov = NULL;
+	if (saved->kcov) {
+		kcov_start(t, saved->kcov, saved->size, saved->area,
+				saved->mode, saved->sequence);
+		memset(saved, 0, sizeof(*saved));
 	}
 }
 
@@ -949,7 +950,7 @@ void kcov_remote_start(u64 handle)
 	*(u64 *)area = 0;
 
 	if (in_serving_softirq()) {
-		kcov_remote_softirq_start(t);
+		kcov_ctx_save(t, &this_cpu_ptr(&kcov_percpu_data)->saved_softirq);
 		t->kcov_softirq = 1;
 	}
 	kcov_start(t, kcov, size, area, mode, sequence);
@@ -1067,7 +1068,7 @@ void kcov_remote_stop(void)
 	kcov_stop(t);
 	if (in_serving_softirq()) {
 		t->kcov_softirq = 0;
-		kcov_remote_softirq_stop(t);
+		kcov_ctx_restore(t, &this_cpu_ptr(&kcov_percpu_data)->saved_softirq);
 	}
 
 	spin_lock(&kcov->lock);
