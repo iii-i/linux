@@ -1543,6 +1543,9 @@ struct task_struct {
 
 	/* Collect coverage from softirq context: */
 	unsigned int			kcov_softirq;
+
+	/* Collect coverage from hardirq context: */
+	unsigned int			kcov_hardirq;
 #endif
 
 #ifdef CONFIG_MEMCG_V1

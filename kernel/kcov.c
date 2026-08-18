@@ -99,9 +99,11 @@ struct kcov_saved {
 
 struct kcov_percpu_data {
 	void			*irq_area;
+	void			*hardirq_area;
 	local_lock_t		lock;
 
 	struct kcov_saved	saved_softirq;
+	struct kcov_saved	saved_hardirq;
 };
 
 static DEFINE_PER_CPU(struct kcov_percpu_data, kcov_percpu_data) = {
@@ -176,6 +178,12 @@ static __always_inline bool in_softirq_really(void)
 	return in_serving_softirq() && !in_hardirq() && !in_nmi();
 }
 
+/* Genuine hardirq context, not an NMI that landed on top of one. */
+static __always_inline bool in_hardirq_really(void)
+{
+	return in_hardirq() && !in_nmi();
+}
+
 static notrace bool check_kcov_mode(enum kcov_mode needed_mode, struct task_struct *t)
 {
 	unsigned int mode;
@@ -185,7 +193,9 @@ static notrace bool check_kcov_mode(enum kcov_mode needed_mode, struct task_stru
 	 * so we ignore code executed in interrupts, unless we are in a remote
 	 * coverage collection section in a softirq.
 	 */
-	if (!in_task() && !(in_softirq_really() && t->kcov_softirq))
+	if (!in_task() &&
+	    !(in_softirq_really() && t->kcov_softirq) &&
+	    !(in_hardirq_really() && t->kcov_hardirq))
 		return false;
 	mode = READ_ONCE(t->kcov_mode);
 	/*
@@ -882,7 +892,7 @@ void kcov_remote_start(u64 handle)
 
 	if (WARN_ON(!kcov_check_handle(handle, true, true, true)))
 		return;
-	if (!in_task() && !in_softirq_really())
+	if (!in_task() && !in_softirq_really() && !in_hardirq_really())
 		return;
 
 	local_lock_irqsave(&kcov_percpu_data.lock, flags);
@@ -897,11 +907,17 @@ void kcov_remote_start(u64 handle)
 		return;
 	}
 	/*
-	 * Check that kcov_remote_start() is not called twice in softirqs.
-	 * Note, that kcov_remote_start() can be called from a softirq that
+	 * Check that kcov_remote_start() is not called twice in the same
+	 * interrupt context. Use the *_really() predicates so that a hardirq
+	 * that preempted a collecting softirq takes the hardirq path and does
+	 * not trip the softirq check. A hardirq can nest over a softirq that
 	 * happened while collecting coverage from a background thread.
 	 */
-	if (WARN_ON(in_serving_softirq() && t->kcov_softirq)) {
+	if (WARN_ON(in_softirq_really() && t->kcov_softirq)) {
+		local_unlock_irqrestore(&kcov_percpu_data.lock, flags);
+		return;
+	}
+	if (WARN_ON(in_hardirq_really() && t->kcov_hardirq)) {
 		local_unlock_irqrestore(&kcov_percpu_data.lock, flags);
 		return;
 	}
@@ -914,7 +930,8 @@ void kcov_remote_start(u64 handle)
 		return;
 	}
 	kcov_debug("handle = %llx, context: %s\n", handle,
-			in_task() ? "task" : "softirq");
+			in_task() ? "task" :
+			in_hardirq_really() ? "hardirq" : "softirq");
 	kcov = remote->kcov;
 	/* Put in kcov_remote_stop(). */
 	kcov_get(kcov);
@@ -929,6 +946,9 @@ void kcov_remote_start(u64 handle)
 	if (in_task()) {
 		size = kcov->remote_size;
 		area = kcov_remote_area_get(size);
+	} else if (in_hardirq_really()) {
+		size = CONFIG_KCOV_IRQ_AREA_SIZE;
+		area = this_cpu_ptr(&kcov_percpu_data)->hardirq_area;
 	} else {
 		size = CONFIG_KCOV_IRQ_AREA_SIZE;
 		area = this_cpu_ptr(&kcov_percpu_data)->irq_area;
@@ -949,7 +969,10 @@ void kcov_remote_start(u64 handle)
 	/* Reset coverage size. */
 	*(u64 *)area = 0;
 
-	if (in_serving_softirq()) {
+	if (in_hardirq_really()) {
+		kcov_ctx_save(t, &this_cpu_ptr(&kcov_percpu_data)->saved_hardirq);
+		t->kcov_hardirq = 1;
+	} else if (in_serving_softirq()) {
 		kcov_ctx_save(t, &this_cpu_ptr(&kcov_percpu_data)->saved_softirq);
 		t->kcov_softirq = 1;
 	}
@@ -1035,7 +1058,7 @@ void kcov_remote_stop(void)
 	int sequence;
 	unsigned long flags;
 
-	if (!in_task() && !in_softirq_really())
+	if (!in_task() && !in_softirq_really() && !in_hardirq_really())
 		return;
 
 	local_lock_irqsave(&kcov_percpu_data.lock, flags);
@@ -1047,15 +1070,25 @@ void kcov_remote_stop(void)
 		return;
 	}
 	/*
-	 * When in softirq, check if the corresponding kcov_remote_start()
+	 * When in an interrupt, check if the corresponding kcov_remote_start()
 	 * actually found the remote handle and started collecting coverage.
+	 * Check hardirq first so a hardirq that preempted a collecting softirq
+	 * unwinds its own section rather than the softirq's.
 	 */
-	if (in_serving_softirq() && !t->kcov_softirq) {
+	if (in_hardirq_really() && !t->kcov_hardirq) {
 		local_unlock_irqrestore(&kcov_percpu_data.lock, flags);
 		return;
 	}
-	/* Make sure that kcov_softirq is only set when in softirq. */
+	if (in_softirq_really() && !t->kcov_softirq) {
+		local_unlock_irqrestore(&kcov_percpu_data.lock, flags);
+		return;
+	}
+	/* Make sure the per-context flags are only set in their own context. */
 	if (WARN_ON(!in_serving_softirq() && t->kcov_softirq)) {
+		local_unlock_irqrestore(&kcov_percpu_data.lock, flags);
+		return;
+	}
+	if (WARN_ON(!in_hardirq_really() && t->kcov_hardirq)) {
 		local_unlock_irqrestore(&kcov_percpu_data.lock, flags);
 		return;
 	}
@@ -1066,7 +1099,10 @@ void kcov_remote_stop(void)
 	sequence = t->kcov_sequence;
 
 	kcov_stop(t);
-	if (in_serving_softirq()) {
+	if (in_hardirq_really()) {
+		t->kcov_hardirq = 0;
+		kcov_ctx_restore(t, &this_cpu_ptr(&kcov_percpu_data)->saved_hardirq);
+	} else if (in_serving_softirq()) {
 		t->kcov_softirq = 0;
 		kcov_ctx_restore(t, &this_cpu_ptr(&kcov_percpu_data)->saved_softirq);
 	}
@@ -1135,9 +1171,15 @@ static int __init kcov_init(void)
 	for_each_possible_cpu(cpu) {
 		void *area = vmalloc_node(CONFIG_KCOV_IRQ_AREA_SIZE *
 				sizeof(unsigned long), cpu_to_node(cpu));
-		if (!area)
+		void *hardirq_area = vmalloc_node(CONFIG_KCOV_IRQ_AREA_SIZE *
+				sizeof(unsigned long), cpu_to_node(cpu));
+		if (!area || !hardirq_area) {
+			vfree(area);
+			vfree(hardirq_area);
 			return -ENOMEM;
+		}
 		per_cpu_ptr(&kcov_percpu_data, cpu)->irq_area = area;
+		per_cpu_ptr(&kcov_percpu_data, cpu)->hardirq_area = hardirq_area;
 	}
 
 	/*
