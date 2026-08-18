@@ -42,6 +42,8 @@ do {						\
 void kcov_remote_start(u64 handle);
 void kcov_remote_stop(void);
 struct kcov_common_handle_id kcov_common_handle(void);
+int kcov_remote_area_phys(u64 handle, phys_addr_t *phys, unsigned int max,
+			  unsigned int *words);
 
 static inline void kcov_remote_start_common(struct kcov_common_handle_id id)
 {

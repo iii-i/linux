@@ -1129,6 +1129,58 @@ void kcov_remote_stop(void)
 }
 EXPORT_SYMBOL(kcov_remote_stop);
 
+/*
+ * Resolve the physical addresses of the pages backing a remote coverage area.
+ * Intended for a hypervisor that reads guest coverage directly out of guest
+ * memory: the guest kernel hands it the physical page list once, without
+ * userspace having to walk /proc/self/pagemap (which needs CAP_SYS_ADMIN and
+ * faulted-in PTEs). The area is vmalloc'd, so its pages are always resident.
+ *
+ * Fills phys[] with up to @max page-aligned physical addresses and, if @words
+ * is non-NULL, the arena size in longs. Returns the number of pages, or a
+ * negative errno. The caller must keep the handle enabled across the call.
+ */
+int kcov_remote_area_phys(u64 handle, phys_addr_t *phys, unsigned int max,
+			  unsigned int *words)
+{
+	struct kcov_remote *remote;
+	struct kcov *kcov;
+	unsigned long flags;
+	unsigned int size, npages, i;
+	void *area;
+
+	spin_lock_irqsave(&kcov_remote_lock, flags);
+	remote = kcov_remote_find(handle);
+	if (!remote) {
+		spin_unlock_irqrestore(&kcov_remote_lock, flags);
+		return -ENOENT;
+	}
+	kcov = remote->kcov;
+	kcov_get(kcov);
+	spin_unlock_irqrestore(&kcov_remote_lock, flags);
+
+	spin_lock(&kcov->lock);
+	area = kcov->area;
+	size = kcov->size;
+	spin_unlock(&kcov->lock);
+
+	if (!area) {
+		kcov_put(kcov);
+		return -ENOENT;
+	}
+	if (words)
+		*words = size;
+	npages = DIV_ROUND_UP((size_t)size * sizeof(unsigned long), PAGE_SIZE);
+	if (npages > max)
+		npages = max;
+	for (i = 0; i < npages; i++)
+		phys[i] = page_to_phys(vmalloc_to_page(area + i * PAGE_SIZE));
+
+	kcov_put(kcov);
+	return npages;
+}
+EXPORT_SYMBOL_GPL(kcov_remote_area_phys);
+
 /* See the comment before kcov_remote_start() for usage details. */
 struct kcov_common_handle_id kcov_common_handle(void)
 {
