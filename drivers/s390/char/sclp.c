@@ -683,6 +683,15 @@ static void sclp_interrupt_handler(struct ext_code ext_code,
 	u32 finished_sccb;
 	u32 evbuf_pending;
 
+	/*
+	 * This is the SCLP external-interrupt handler: hardirq context. With
+	 * hardirq remote-coverage support in kcov, bracket the whole handler so
+	 * the interrupt entry, the request/read state machine, and -- when an
+	 * event read completes here -- the real sclp_dispatch_evbufs() parse all
+	 * accrue into the fuzzer's kcov handle. This is the interrupt-context
+	 * superset of what the process-context replay knob collects.
+	 */
+	sclp_fuzz_cov_start();
 	inc_irq_stat(IRQEXT_SCP);
 	spin_lock(&sclp_lock);
 	finished_sccb = param32 & 0xfffffff8;
@@ -722,6 +731,7 @@ static void sclp_interrupt_handler(struct ext_code ext_code,
 		__sclp_queue_read_req();
 	spin_unlock(&sclp_lock);
 	sclp_process_queue();
+	sclp_fuzz_cov_stop();
 }
 
 /* Convert interval in jiffies to TOD ticks. */
