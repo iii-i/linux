@@ -336,6 +336,13 @@ bool rseq_exit_user_update(struct pt_regs *regs, struct task_struct *t)
 }
 #endif
 
+#if defined(CONFIG_KMSAN) && defined(CONFIG_RSEQ_SLICE_EXTENSION)
+bool __rseq_grant_slice_extension(bool work_pending)
+{
+	return __rseq_grant_slice_extension_inline(work_pending);
+}
+#endif
+
 void __rseq_signal_deliver(int sig, struct pt_regs *regs)
 {
 	rseq_stat_inc(rseq_stats.signal);

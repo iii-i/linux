@@ -125,7 +125,7 @@ do {									\
 		unsafe_put_user(0U, &rseq->slice_ctrl.all, efault);	\
 } while (0)
 
-static __always_inline bool __rseq_grant_slice_extension(bool work_pending)
+static __always_inline bool __rseq_grant_slice_extension_inline(bool work_pending)
 {
 	struct task_struct *curr = current;
 	struct rseq_slice_ctrl usr_ctrl;
@@ -229,6 +229,12 @@ efault:
 	force_sig(SIGSEGV);
 	return false;
 }
+
+#ifdef CONFIG_KMSAN
+bool __rseq_grant_slice_extension(bool work_pending);
+#else
+#define __rseq_grant_slice_extension __rseq_grant_slice_extension_inline
+#endif
 
 static __always_inline bool rseq_grant_slice_extension(unsigned long ti_work, unsigned long mask)
 {
