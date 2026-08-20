@@ -10,8 +10,8 @@
 #include <asm/errno.h>
 
 #define FUTEX_OP_FUNC(name, insn)						\
-static uaccess_kmsan_or_inline int						\
-__futex_atomic_##name(int oparg, int *old, u32 __user *uaddr)			\
+static __always_inline int							\
+__futex_atomic_##name##_inline(int oparg, int *old, u32 __user *uaddr)		\
 {										\
 	bool sacf_flag;								\
 	int rc, new;								\
@@ -46,6 +46,22 @@ FUTEX_OP_FUNC(or,  "lr %[new],%[old]\n or %[new],%[oparg]\n")
 FUTEX_OP_FUNC(and, "lr %[new],%[old]\n nr %[new],%[oparg]\n")
 FUTEX_OP_FUNC(xor, "lr %[new],%[old]\n xr %[new],%[oparg]\n")
 
+#if defined(CONFIG_KMSAN) && !defined(__DECOMPRESSOR)
+int __futex_atomic_set(int oparg, int *old, u32 __user *uaddr);
+int __futex_atomic_add(int oparg, int *old, u32 __user *uaddr);
+int __futex_atomic_or(int oparg, int *old, u32 __user *uaddr);
+int __futex_atomic_and(int oparg, int *old, u32 __user *uaddr);
+int __futex_atomic_xor(int oparg, int *old, u32 __user *uaddr);
+int futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr, u32 oldval, u32 newval);
+#else
+#define __futex_atomic_set		__futex_atomic_set_inline
+#define __futex_atomic_add		__futex_atomic_add_inline
+#define __futex_atomic_or		__futex_atomic_or_inline
+#define __futex_atomic_and		__futex_atomic_and_inline
+#define __futex_atomic_xor		__futex_atomic_xor_inline
+#define futex_atomic_cmpxchg_inatomic	__futex_atomic_cmpxchg_inatomic_inline
+#endif
+
 static inline
 int arch_futex_atomic_op_inuser(int op, int oparg, int *oval, u32 __user *uaddr)
 {
@@ -75,8 +91,8 @@ int arch_futex_atomic_op_inuser(int op, int oparg, int *oval, u32 __user *uaddr)
 	return rc;
 }
 
-static uaccess_kmsan_or_inline
-int futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr, u32 oldval, u32 newval)
+static __always_inline
+int __futex_atomic_cmpxchg_inatomic_inline(u32 *uval, u32 __user *uaddr, u32 oldval, u32 newval)
 {
 	bool sacf_flag;
 	int rc;
