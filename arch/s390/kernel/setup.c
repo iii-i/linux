@@ -481,22 +481,15 @@ static struct resource bss_resource = {
 	.flags = IORESOURCE_BUSY | IORESOURCE_SYSTEM_RAM,
 };
 
-static struct resource initrd_resource = {
-	.name = "initrd",
-	.flags = IORESOURCE_BUSY | IORESOURCE_SYSTEM_RAM,
-};
-
 static struct resource __initdata *standard_resources[] = {
 	&code_resource,
 	&data_resource,
 	&bss_resource,
-	&initrd_resource,
 };
 
 static void __init setup_resources(void)
 {
 	struct resource *res, *std_res, *sub_res;
-	bool retain_initrd = false;
 	phys_addr_t start, end;
 	int j;
 	u64 i;
@@ -507,19 +500,6 @@ static void __init setup_resources(void)
 	data_resource.end = __pa_symbol(_edata) - 1;
 	bss_resource.start = __pa_symbol(__bss_start);
 	bss_resource.end = __pa_symbol(__bss_stop) - 1;
-
-	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD)) {
-		unsigned long initrd_addr, initrd_size;
-	
-		if (strstr(boot_command_line, "retain_initrd"))
-			retain_initrd = true;
-		if (retain_initrd && get_physmem_reserved(RR_INITRD, &initrd_addr, &initrd_size)) {
-			initrd_resource.start = initrd_addr;
-			initrd_resource.end = initrd_resource.start + initrd_size - 1;
-		} else {
-			retain_initrd = false;
-		}
-	}
 
 	for_each_mem_range(i, &start, &end) {
 		res = memblock_alloc_or_panic(sizeof(*res), 8);
@@ -537,8 +517,6 @@ static void __init setup_resources(void)
 
 		for (j = 0; j < ARRAY_SIZE(standard_resources); j++) {
 			std_res = standard_resources[j];
-			if (std_res == &initrd_resource && !retain_initrd)
-				continue;
 			if (std_res->start < res->start ||
 			    std_res->start > res->end)
 				continue;

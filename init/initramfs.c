@@ -10,6 +10,7 @@
 #include <linux/hex.h>
 #include <linux/init.h>
 #include <linux/init_syscalls.h>
+#include <linux/ioport.h>
 #include <linux/kstrtox.h>
 #include <linux/memblock.h>
 #include <linux/mm.h>
@@ -614,6 +615,11 @@ extern unsigned long __initramfs_size;
 
 static BIN_ATTR(initrd, 0440, sysfs_bin_attr_simple_read, NULL, 0);
 
+static struct resource initrd_resource = {
+	.name  = "initrd",
+	.flags = IORESOURCE_BUSY | IORESOURCE_SYSTEM_RAM,
+};
+
 void __init reserve_initrd_mem(void)
 {
 	phys_addr_t start;
@@ -760,6 +766,10 @@ static void __init do_populate_rootfs(void *unused, async_cookie_t cookie)
 		bin_attr_initrd.private = (void *)initrd_start;
 		if (sysfs_create_bin_file(firmware_kobj, &bin_attr_initrd))
 			pr_err("Failed to create initrd sysfs file");
+		initrd_resource.start = __pa(initrd_start);
+		initrd_resource.end = __pa(initrd_end) - 1;
+		if (insert_resource(&iomem_resource, &initrd_resource))
+			pr_err("Failed to insert initrd iomem resource");
 	}
 	initrd_start = 0;
 	initrd_end = 0;
