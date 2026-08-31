@@ -1315,3 +1315,65 @@ static __init int sclp_initcall(void)
 }
 
 arch_initcall(sclp_initcall);
+
+#ifdef CONFIG_KCOV
+/*
+ * SCLP host->guest fuzzing scaffolding.
+ *
+ * Under Secure Execution the hypervisor is untrusted, so every byte it places
+ * in an SCCB is attacker-controlled.  The event-buffer dispatch loop
+ * (sclp_dispatch_evbufs), reached from the real Read-Event-Data completion in
+ * the external interrupt handler (hardirq), is the core parser of that data.
+ *
+ * The fuzzer is host-driven: QEMU authors each malformed Read-Event-Data
+ * response and reads coverage directly from the guest's kcov buffer (advertised
+ * generically via the virtio-kcov device, off the fuzzed data path), while the
+ * guest's own SCLP driver keeps issuing reads from its interrupt path. So the
+ * guest side needs only the interrupt-handler kcov annotation (see
+ * sclp_interrupt_handler()) plus a planted, deliberately vulnerable receiver
+ * (opt-in via "plantbug") to exercise the end-to-end crash-detection path.
+ */
+#include <linux/slab.h>
+
+/*
+ * A deliberately vulnerable event receiver -- a test artifact, not a real
+ * handler.  It trusts the hypervisor-supplied evbuf length and copies that many
+ * bytes into a fixed 16-byte heap object.  A malicious length > 16, which the
+ * host can author freely, overflows the slab object; KASAN reports it.  This is
+ * the bug-oracle end-to-end check: attacker-controlled bytes in, KASAN out.  It
+ * models the trust-the-length bug class the fuzzer hunts for.
+ */
+#define SCLP_FUZZ_PLANTED_TYPE 0x30
+
+static u8 sclp_fuzz_sink;
+
+static void sclp_fuzz_planted_receiver(struct evbuf_header *evbuf)
+{
+	u8 *buf = kmalloc(16, GFP_ATOMIC);
+
+	if (!buf)
+		return;
+	memcpy(buf, evbuf, evbuf->length);	/* PLANTED BUG: length is attacker-controlled */
+	sclp_fuzz_sink ^= buf[0];
+	kfree(buf);
+}
+
+static struct sclp_register sclp_fuzz_receiver = {
+	.receive_mask = SCLP_EVTYP_MASK(SCLP_FUZZ_PLANTED_TYPE),
+	.receiver_fn = sclp_fuzz_planted_receiver,
+};
+
+static int __init sclp_fuzz_init(void)
+{
+	/*
+	 * The planted bug is opt-in: only wire up the vulnerable receiver when
+	 * the cmdline asks for it, so coverage-guided runs can explore the real
+	 * parser indefinitely instead of tripping it at once.
+	 */
+	if (strstr(boot_command_line, "plantbug") &&
+	    sclp_register(&sclp_fuzz_receiver))
+		pr_warn("sclp-fuzz: planted receiver registration failed\n");
+	return 0;
+}
+late_initcall(sclp_fuzz_init);
+#endif /* CONFIG_KCOV */
