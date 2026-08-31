@@ -28,6 +28,33 @@
 
 #define SCLP_HEADER		"sclp: "
 
+#ifdef CONFIG_KCOV
+#include <linux/kcov.h>
+/*
+ * Common-handle instance id the guest subsystems collect into. Must match the
+ * virtio-kcov driver's VIRTIO_KCOV_INSTANCE, which owns and advertises the
+ * coverage buffer this section accrues into.
+ */
+#define SCLP_FUZZ_KCOV_INSTANCE 0x1
+/*
+ * Bracket the interrupt-driven dispatch path (hardirq) so its edges accrue into
+ * a kcov-remote common-handle section; needs hardirq remote-coverage support in
+ * kcov.
+ */
+static inline void sclp_fuzz_cov_start(void)
+{
+	kcov_remote_start_common((struct kcov_common_handle_id){
+		.val = SCLP_FUZZ_KCOV_INSTANCE });
+}
+static inline void sclp_fuzz_cov_stop(void)
+{
+	kcov_remote_stop();
+}
+#else
+static inline void sclp_fuzz_cov_start(void) {}
+static inline void sclp_fuzz_cov_stop(void) {}
+#endif
+
 struct sclp_trace_entry {
 	char id[4] __nonstring;
 	u32 a;
@@ -659,6 +686,14 @@ static void sclp_interrupt_handler(struct ext_code ext_code,
 	u32 finished_sccb;
 	u32 evbuf_pending;
 
+	/*
+	 * This is the SCLP external-interrupt handler: hardirq context. With
+	 * hardirq remote-coverage support in kcov, bracket the whole handler so
+	 * the interrupt entry, the request/read state machine, and -- when an
+	 * event read completes here -- the real sclp_dispatch_evbufs() parse all
+	 * accrue into the fuzzer's kcov handle.
+	 */
+	sclp_fuzz_cov_start();
 	inc_irq_stat(IRQEXT_SCP);
 	spin_lock(&sclp_lock);
 	finished_sccb = param32 & 0xfffffff8;
@@ -698,6 +733,7 @@ static void sclp_interrupt_handler(struct ext_code ext_code,
 		__sclp_queue_read_req();
 	spin_unlock(&sclp_lock);
 	sclp_process_queue();
+	sclp_fuzz_cov_stop();
 }
 
 /* Convert interval in jiffies to TOD ticks. */
