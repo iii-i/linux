@@ -150,6 +150,17 @@ config VIRTIO_INPUT
 
 	 If unsure, say M.
 
+config VIRTIO_KCOV
+	tristate "Virtio kcov coverage-advertisement driver"
+	depends on VIRTIO
+	depends on KCOV
+	help
+	 This driver hands the guest's kcov coverage buffer to the hypervisor so
+	 a coverage-guided VM fuzzer can read guest coverage directly. The buffer
+	 is owned by this driver (not a user fd), so userspace cannot free it.
+
+	 If unsure, say N.
+
 config VIRTIO_MMIO
 	tristate "Platform bus driver for memory mapped virtio devices"
 	depends on HAS_IOMEM && HAS_DMA
