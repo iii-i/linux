@@ -1181,6 +1181,73 @@ int kcov_remote_area_phys(u64 handle, phys_addr_t *phys, unsigned int max,
 }
 EXPORT_SYMBOL_GPL(kcov_remote_area_phys);
 
+/*
+ * Allocate a remote coverage area owned by an in-kernel driver rather than a
+ * user file descriptor. The area is never mmap()ed or exposed to userspace and
+ * lives until kcov_remote_free(), so a hypervisor that reads it directly (via
+ * kcov_remote_area_phys()) cannot have it freed out from under it by a dying
+ * userspace process -- unlike a fd-owned area, whose last close()/exit() vfrees
+ * it. Remote sections started against @handle fold into this area exactly as for
+ * a KCOV_REMOTE_ENABLEd fd; there is no owning task.
+ */
+struct kcov *kcov_remote_alloc(u64 handle, unsigned int size,
+			       unsigned int remote_size)
+{
+	struct kcov_remote *remote;
+	struct kcov *kcov;
+	unsigned long flags;
+	void *area;
+
+	if (!kcov_check_handle(handle, true, false, false))
+		return ERR_PTR(-EINVAL);
+	if (size < 2 || size > INT_MAX / sizeof(unsigned long) ||
+	    (unsigned long)remote_size > LONG_MAX / sizeof(unsigned long))
+		return ERR_PTR(-EINVAL);
+
+	kcov = kzalloc(sizeof(*kcov), GFP_KERNEL);
+	if (!kcov)
+		return ERR_PTR(-ENOMEM);
+	area = vmalloc(size * sizeof(unsigned long));
+	if (!area) {
+		kfree(kcov);
+		return ERR_PTR(-ENOMEM);
+	}
+	spin_lock_init(&kcov->lock);
+	refcount_set(&kcov->refcount, 1);
+	spin_lock_irqsave(&kcov->lock, flags);
+	kcov->area = area;
+	kcov->size = size;
+	kcov->mode = KCOV_MODE_TRACE_PC;
+	kcov->remote = true;
+	kcov->remote_size = remote_size;
+	kcov->sequence = 1;
+	spin_unlock_irqrestore(&kcov->lock, flags);
+
+	spin_lock_irqsave(&kcov_remote_lock, flags);
+	remote = kcov_remote_add(kcov, handle);
+	spin_unlock_irqrestore(&kcov_remote_lock, flags);
+	if (IS_ERR(remote)) {
+		vfree(area);
+		kfree(kcov);
+		return ERR_CAST(remote);
+	}
+	return kcov;
+}
+EXPORT_SYMBOL_GPL(kcov_remote_alloc);
+
+void kcov_remote_free(struct kcov *kcov)
+{
+	unsigned long flags;
+
+	/* Unregister the handle first so no new section can start collecting. */
+	spin_lock_irqsave(&kcov->lock, flags);
+	kcov_remote_reset(kcov);
+	spin_unlock_irqrestore(&kcov->lock, flags);
+	/* Drop our reference; in-flight sections keep the area alive until done. */
+	kcov_put(kcov);
+}
+EXPORT_SYMBOL_GPL(kcov_remote_free);
+
 /* See the comment before kcov_remote_start() for usage details. */
 struct kcov_common_handle_id kcov_common_handle(void)
 {

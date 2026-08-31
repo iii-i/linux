@@ -38,12 +38,17 @@ do {						\
 	(t)->kcov_mode &= ~KCOV_IN_CTXSW;	\
 } while (0)
 
+struct kcov;
+
 /* See Documentation/dev-tools/kcov.rst for usage details. */
 void kcov_remote_start(u64 handle);
 void kcov_remote_stop(void);
 struct kcov_common_handle_id kcov_common_handle(void);
 int kcov_remote_area_phys(u64 handle, phys_addr_t *phys, unsigned int max,
 			  unsigned int *words);
+struct kcov *kcov_remote_alloc(u64 handle, unsigned int size,
+			       unsigned int remote_size);
+void kcov_remote_free(struct kcov *kcov);
 
 static inline void kcov_remote_start_common(struct kcov_common_handle_id id)
 {
