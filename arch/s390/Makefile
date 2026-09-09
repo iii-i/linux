@@ -116,6 +116,10 @@ cfi := $(call as-instr,.cfi_startproc\n.cfi_val_offset 15$(comma)-160\n.cfi_endp
 KBUILD_CFLAGS	+= -mpacked-stack -mbackchain -msoft-float $(cflags-y)
 KBUILD_CFLAGS	+= -pipe -Wno-sign-compare
 KBUILD_CFLAGS	+= -fno-asynchronous-unwind-tables $(cfi)
+
+CC_FLAGS_REG_STRUCT_RETURN := $(call cc-option,-freg-struct-return)
+export CC_FLAGS_REG_STRUCT_RETURN
+KBUILD_CFLAGS	+= $(CC_FLAGS_REG_STRUCT_RETURN)
 KBUILD_AFLAGS	+= $(aflags-y) $(cfi)
 export KBUILD_AFLAGS_DECOMPRESSOR
 export KBUILD_CFLAGS_DECOMPRESSOR

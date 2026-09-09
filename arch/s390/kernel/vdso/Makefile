@@ -23,6 +23,8 @@ obj-cvdso := $(addprefix $(obj)/, $(obj-cvdso))
 KBUILD_AFLAGS_VDSO := $(KBUILD_AFLAGS) -DBUILD_VDSO
 
 KBUILD_CFLAGS_VDSO := $(KBUILD_CFLAGS) -DBUILD_VDSO -DDISABLE_BRANCH_PROFILING
+# The vdso is called by userspace, which uses the ELF ABI.
+KBUILD_CFLAGS_VDSO := $(filter-out $(CC_FLAGS_REG_STRUCT_RETURN),$(KBUILD_CFLAGS_VDSO))
 KBUILD_CFLAGS_VDSO := $(filter-out -mpacked-stack,$(KBUILD_CFLAGS_VDSO))
 KBUILD_CFLAGS_VDSO := $(filter-out -mno-pic-data-is-text-relative,$(KBUILD_CFLAGS_VDSO))
 KBUILD_CFLAGS_VDSO := $(filter-out -munaligned-symbols,$(KBUILD_CFLAGS_VDSO))
