@@ -12321,6 +12321,21 @@ static int idle_cpu_without(int cpu, struct task_struct *p)
 }
 
 /*
+ * Whether @a is the more capable of two sched_group_capacity within @sd.
+ *
+ * A task is placed before post_init_entity_util_avg() gives it a utilization,
+ * so at that point it fits every CPU and the capacity aware group types never
+ * trigger.
+ */
+static bool asym_capacity_prefer(struct sched_domain *sd,
+				 struct sched_group_capacity *a,
+				 struct sched_group_capacity *b)
+{
+	return (sd->flags & SD_ASYM_CPUCAPACITY) &&
+	       a->max_capacity > b->max_capacity;
+}
+
+/*
  * update_sg_wakeup_stats - Update sched_group's statistics for wakeup.
  * @sd: The sched_domain level to look for idlest group.
  * @group: sched_group whose statistics are to be updated.
@@ -12383,7 +12398,8 @@ static inline void update_sg_wakeup_stats(struct sched_domain *sd,
 				sgs->group_capacity;
 }
 
-static bool update_pick_idlest(struct sched_group *idlest,
+static bool update_pick_idlest(struct sched_domain *sd,
+			       struct sched_group *idlest,
 			       struct sg_lb_stats *idlest_sgs,
 			       struct sched_group *group,
 			       struct sg_lb_stats *sgs)
@@ -12421,6 +12437,12 @@ static bool update_pick_idlest(struct sched_group *idlest,
 		break;
 
 	case group_has_spare:
+		/* Select group with the highest max capacity */
+		if (asym_capacity_prefer(sd, idlest->sgc, group->sgc))
+			return false;
+		if (asym_capacity_prefer(sd, group->sgc, idlest->sgc))
+			return true;
+
 		/* Select group with most idle CPUs */
 		if (idlest_sgs->idle_cpus > sgs->idle_cpus)
 			return false;
@@ -12478,7 +12500,7 @@ sched_balance_find_dst_group(struct sched_domain *sd, struct task_struct *p, int
 
 		update_sg_wakeup_stats(sd, group, sgs, p);
 
-		if (!local_group && update_pick_idlest(idlest, &idlest_sgs, group, sgs)) {
+		if (!local_group && update_pick_idlest(sd, idlest, &idlest_sgs, group, sgs)) {
 			idlest = group;
 			idlest_sgs = *sgs;
 		}
@@ -12593,6 +12615,12 @@ sched_balance_find_dst_group(struct sched_domain *sd, struct task_struct *p, int
 			}
 		}
 #endif /* CONFIG_NUMA */
+
+		/* Select group with the highest max capacity */
+		if (asym_capacity_prefer(sd, local->sgc, idlest->sgc))
+			return NULL;
+		if (asym_capacity_prefer(sd, idlest->sgc, local->sgc))
+			break;
 
 		/*
 		 * Select group with highest number of idle CPUs. We could also
