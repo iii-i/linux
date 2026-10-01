@@ -1919,6 +1919,14 @@ static noinline int bpf_jit_insn(struct bpf_jit *jit, struct bpf_prog *fp,
 			EMIT6_PCREL_RILB_PTR(0xc0050000, REG_14, (void *)func);
 			/* lgr %b0,%r2: load return value into %b0 */
 			EMIT4(0xb9040000, BPF_REG_0, REG_2);
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_NO_EXT__
+			/* The ABI does not extend narrow return values. */
+			if (insn->src_reg == BPF_PSEUDO_KFUNC_CALL &&
+			    m->ret_size && m->ret_size < 8 &&
+			    sign_zero_extend(jit, BPF_REG_0, m->ret_size,
+					     m->ret_flags))
+				return -1;
+#endif
 		}
 
 		/*
@@ -2883,6 +2891,19 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 				/* mvc bpf_arg_off(8,%r15),arg(%r15) */
 				_EMIT6(0xd207f000 | bpf_arg_off,
 				       0xf000 | arg);
+			if (IS_ENABLED(__S390_EXPERIMENTAL_KERNEL_ABI_NO_EXT__) &&
+			    !(m->arg_flags[i] & BTF_FMODEL_STRUCT_ARG) &&
+			    m->arg_size[i] < 8) {
+				/* lg %r1,bpf_arg_off(%r15) */
+				EMIT6_DISP_LH(0xe3000000, 0x0004, REG_1, REG_0,
+					      REG_15, bpf_arg_off);
+				if (sign_zero_extend(jit, REG_1, m->arg_size[i],
+						     m->arg_flags[i]))
+					return -1;
+				/* stg %r1,bpf_arg_off(%r15) */
+				EMIT6_DISP_LH(0xe3000000, 0x0024, REG_1, REG_0,
+					      REG_15, bpf_arg_off);
+			}
 			j += 1;
 		} else if (tramp_arg_nr_regs(m, i) == 2) {
 			if (arg_reg[i] >= 0) {
@@ -3046,6 +3067,10 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 			EMIT6_PCREL_RILB_PTR(0xc0050000, REG_14,
 					     func_addr + S390X_PATCH_SIZE);
 		}
+		if (IS_ENABLED(__S390_EXPERIMENTAL_KERNEL_ABI_NO_EXT__) &&
+		    m->ret_size && m->ret_size < 8 &&
+		    sign_zero_extend(jit, REG_2, m->ret_size, m->ret_flags))
+			return -1;
 		/* stg %r2,retval_off(%r15) */
 		EMIT6_DISP_LH(0xe3000000, 0x0024, REG_2, REG_0, REG_15,
 			      tjit->retval_off);

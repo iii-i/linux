@@ -79,6 +79,9 @@ SYM_FUNC_END(_diag8c_amode31)
  * int _diag26c_amode31(void *req, void *resp, enum diag26c_sc subcode)
  */
 SYM_TYPED_FUNC_START(_diag26c_amode31)
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_NO_EXT__
+	llgfr	%r4,%r4
+#endif
 	lghi	%r5,-EOPNOTSUPP
 	sam31
 	diag	%r2,%r4,0x26c
