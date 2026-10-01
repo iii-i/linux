@@ -5,9 +5,17 @@
 #include <asm/asm-offsets.h>
 #include <asm/nospec-insn.h>
 
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_R6_CLOBBERED__
+#define RN 6
+#define REG_RN %r6
+#else
+#define RN 5
+#define REG_RN %r5
+#endif
+
 #define R2_OFF 0
-#define R5_OFF (R2_OFF + (5 - 2 + 1) * 8)
-#define R14_OFF (R5_OFF + 8)
+#define RN_OFF (R2_OFF + (RN - 2 + 1) * 8)
+#define R14_OFF (RN_OFF + 8)
 #define RETADDR_OFF (R14_OFF + 8)
 #define R15_OFF (RETADDR_OFF + 8)
 #define BACKCHAIN_OFF (R15_OFF + 8)
@@ -25,7 +33,7 @@ SYM_FUNC_START(arch_bpf_timed_may_goto)
 	 * %r13; the return value is in %r12; all GPRs except %r0, %r1, and
 	 * %r12 are callee-saved; and the return address is in %r0.
 	 */
-	stmg %r2,%r5,FRAME_OFF+R2_OFF(%r15)
+	stmg %r2,REG_RN,FRAME_OFF+R2_OFF(%r15)
 	stg %r14,FRAME_OFF+R14_OFF(%r15)
 	stg %r0,FRAME_OFF+RETADDR_OFF(%r15)
 	stg %r15,FRAME_OFF+R15_OFF(%r15)
@@ -38,7 +46,7 @@ SYM_FUNC_START(arch_bpf_timed_may_goto)
 	lgr %r12,%r2
 
 	lg %r15,FRAME_SIZE+FRAME_OFF+R15_OFF(%r15)
-	lmg %r2,%r5,FRAME_OFF+R2_OFF(%r15)
+	lmg %r2,REG_RN,FRAME_OFF+R2_OFF(%r15)
 	lg %r14,FRAME_OFF+R14_OFF(%r15)
 	lg %r1,FRAME_OFF+RETADDR_OFF(%r15)
 	BR_EX %r1
