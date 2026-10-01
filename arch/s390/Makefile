@@ -117,6 +117,13 @@ KBUILD_CFLAGS	+= -mpacked-stack -mbackchain -msoft-float $(cflags-y)
 KBUILD_CFLAGS	+= -pipe -Wno-sign-compare
 KBUILD_CFLAGS	+= -fno-asynchronous-unwind-tables $(cfi)
 KBUILD_AFLAGS	+= $(aflags-y) $(cfi)
+
+ifneq ($(S390_KABI_X),)
+CC_FLAGS_KABI_X := -mexperimental-kernel-abi=$(S390_KABI_X)
+endif
+export CC_FLAGS_KABI_X
+KBUILD_CFLAGS	+= $(CC_FLAGS_KABI_X)
+KBUILD_AFLAGS	+= $(if $(CC_FLAGS_KABI_X),-mpacked-stack -mbackchain -msoft-float $(CC_FLAGS_KABI_X))
 export KBUILD_AFLAGS_DECOMPRESSOR
 export KBUILD_CFLAGS_DECOMPRESSOR
 

@@ -21,8 +21,10 @@ obj-vdso := $(addprefix $(obj)/, $(obj-vdso))
 obj-cvdso := $(addprefix $(obj)/, $(obj-cvdso))
 
 KBUILD_AFLAGS_VDSO := $(KBUILD_AFLAGS) -DBUILD_VDSO
+KBUILD_AFLAGS_VDSO := $(filter-out $(CC_FLAGS_KABI_X),$(KBUILD_AFLAGS_VDSO))
 
 KBUILD_CFLAGS_VDSO := $(KBUILD_CFLAGS) -DBUILD_VDSO -DDISABLE_BRANCH_PROFILING
+KBUILD_CFLAGS_VDSO := $(filter-out $(CC_FLAGS_KABI_X),$(KBUILD_CFLAGS_VDSO))
 KBUILD_CFLAGS_VDSO := $(filter-out -mpacked-stack,$(KBUILD_CFLAGS_VDSO))
 KBUILD_CFLAGS_VDSO := $(filter-out -mno-pic-data-is-text-relative,$(KBUILD_CFLAGS_VDSO))
 KBUILD_CFLAGS_VDSO := $(filter-out -munaligned-symbols,$(KBUILD_CFLAGS_VDSO))
