@@ -13,6 +13,12 @@
 #define REG_RN %r5
 #endif
 
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_R7_ARG__
+#define REG_AX %r7
+#else
+#define REG_AX %r12
+#endif
+
 #define R2_OFF 0
 #define RN_OFF (R2_OFF + (RN - 2 + 1) * 8)
 #define R14_OFF (RN_OFF + 8)
@@ -29,9 +35,9 @@
 
 SYM_FUNC_START(arch_bpf_timed_may_goto)
 	/*
-	 * This function has a special ABI: the parameters are in %r12 and
-	 * %r13; the return value is in %r12; all GPRs except %r0, %r1, and
-	 * %r12 are callee-saved; and the return address is in %r0.
+	 * This function has a special ABI: the parameters are in REG_AX and
+	 * %r13; the return value is in REG_AX; all GPRs except %r0, %r1, and
+	 * REG_AX are callee-saved; and the return address is in %r0.
 	 */
 	stmg %r2,REG_RN,FRAME_OFF+R2_OFF(%r15)
 	stg %r14,FRAME_OFF+R14_OFF(%r15)
@@ -41,9 +47,9 @@ SYM_FUNC_START(arch_bpf_timed_may_goto)
 	lay %r15,-FRAME_SIZE(%r15)
 	stg %r1,__SF_BACKCHAIN(%r15)
 
-	lay %r2,0(%r12,%r13)
+	lay %r2,0(REG_AX,%r13)
 	brasl %r14,bpf_check_timed_may_goto
-	lgr %r12,%r2
+	lgr REG_AX,%r2
 
 	lg %r15,FRAME_SIZE+FRAME_OFF+R15_OFF(%r15)
 	lmg %r2,REG_RN,FRAME_OFF+R2_OFF(%r15)

@@ -301,7 +301,11 @@ static __always_inline unsigned long regs_get_kernel_argument(const struct pt_re
 {
 	unsigned int argoffset = STACK_FRAME_OVERHEAD / sizeof(long);
 
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_R7_ARG__
+#define NR_REG_ARGUMENTS 6
+#else
 #define NR_REG_ARGUMENTS 5
+#endif
 	if (n < NR_REG_ARGUMENTS)
 		return regs_get_register(regs, 2 + n);
 	n -= NR_REG_ARGUMENTS;

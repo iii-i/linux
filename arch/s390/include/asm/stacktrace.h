@@ -105,8 +105,16 @@ static __always_inline unsigned long get_stack_pointer(struct task_struct *task,
 #define CALL_FMT_4 CALL_FMT_3, "+&d" (r5)
 #define CALL_FMT_5 CALL_FMT_4, "+&d" (r6)
 
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_R7_ARG__
+#define CALL_CLOBBER_5 "0", "1", "7", "14", "cc", "memory"
+#else
 #define CALL_CLOBBER_5 "0", "1", "14", "cc", "memory"
+#endif
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_R6_CLOBBERED__
+#define CALL_CLOBBER_4 CALL_CLOBBER_5, "6"
+#else
 #define CALL_CLOBBER_4 CALL_CLOBBER_5
+#endif
 #define CALL_CLOBBER_3 CALL_CLOBBER_4, "5"
 #define CALL_CLOBBER_2 CALL_CLOBBER_3, "4"
 #define CALL_CLOBBER_1 CALL_CLOBBER_2, "3"
@@ -227,6 +235,12 @@ static __always_inline unsigned long get_stack_pointer(struct task_struct *task,
  * that no useful stackframe or stackpointer is passed via register 15.
  * Therefore the called function must not use r15 to access the stack.
  */
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_R7_ARG__
+#define CALL_NODAT_REG "8"
+#else
+#define CALL_NODAT_REG "7"
+#endif
+
 #define call_nodat(nr, rettype, fn, ...)				\
 ({									\
 	rettype (*__fn)(CALL_PARM_##nr(__VA_ARGS__)) = (fn);		\
@@ -242,19 +256,19 @@ static __always_inline unsigned long get_stack_pointer(struct task_struct *task,
 	asm volatile(							\
 		"	epsw	0,1\n"					\
 		"	risbg	1,0,0,31,32\n"				\
-		"	larl	7,1f\n"					\
+		"	larl	" CALL_NODAT_REG ",1f\n"			\
 		"	stg	1,%[psw_leave]\n"			\
-		"	stg	7,8+%[psw_leave]\n"			\
-		"	la	7,%[psw_leave]\n"			\
-		"	lra	7,0(7)\n"				\
+		"	stg	" CALL_NODAT_REG ",8+%[psw_leave]\n"		\
+		"	la	" CALL_NODAT_REG ",%[psw_leave]\n"		\
+		"	lra	" CALL_NODAT_REG ",0(" CALL_NODAT_REG ")\n"	\
 		"	larl	1,0f\n"					\
 		"	lra	14,0(1)\n"				\
 		"	lpswe	%[psw_enter]\n"				\
-		"0:	lpswe	0(7)\n"					\
+		"0:	lpswe	0(" CALL_NODAT_REG ")\n"			\
 		"1:"							\
 		: CALL_FMT_##nr, [psw_leave] "=Q" (psw_leave)		\
 		: [psw_enter] "Q" (psw_enter)				\
-		: "7", CALL_CLOBBER_##nr);				\
+		: CALL_NODAT_REG, CALL_CLOBBER_##nr);			\
 	(rettype)r2;							\
 })
 

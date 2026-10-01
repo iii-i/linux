@@ -76,8 +76,19 @@ struct bpf_jit {
 #define REG_2		BPF_REG_1		/* Register 2 */
 #define REG_3		BPF_REG_2		/* Register 3 */
 #define REG_4		BPF_REG_3		/* Register 4 */
-#define REG_7		BPF_REG_6		/* Register 7 */
 #define REG_8		BPF_REG_7		/* Register 8 */
+#define REG_9		BPF_REG_8		/* Register 9 */
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_R7_ARG__
+/* Call-saved registers for the trampoline: the __bpf_prog_enter() result */
+#define REG_ENTER	REG_9
+#define REG_SAVE_LO	REG_8
+#define REG_SAVE_HI	REG_9
+#else
+#define REG_7		BPF_REG_6		/* Register 7 */
+#define REG_ENTER	REG_7
+#define REG_SAVE_LO	REG_7
+#define REG_SAVE_HI	REG_8
+#endif
 #define REG_14		BPF_REG_0		/* Register 14 */
 
 /*
@@ -93,14 +104,22 @@ static const int reg2hex[] = {
 	[BPF_REG_4]	= 5,
 	[BPF_REG_5]	= 6,
 	/* Call saved registers */
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_R7_ARG__
+	[BPF_REG_6]	= 12,
+#else
 	[BPF_REG_6]	= 7,
+#endif
 	[BPF_REG_7]	= 8,
 	[BPF_REG_8]	= 9,
 	[BPF_REG_9]	= 10,
 	/* BPF stack pointer */
 	[BPF_REG_FP]	= 13,
 	/* Register for blinding */
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_R7_ARG__
+	[BPF_REG_AX]	= 7,
+#else
 	[BPF_REG_AX]	= 12,
+#endif
 	/* Work registers for s390x backend */
 	[REG_W0]	= 0,
 	[REG_W1]	= 1,
@@ -2610,8 +2629,8 @@ static int invoke_bpf_prog(struct bpf_tramp_jit *tjit,
 	EMIT4_DISP(0x41000000, REG_3, REG_15, tjit->run_ctx_off);
 	/* brasl %r14,__bpf_prog_enter */
 	EMIT6_PCREL_RILB_PTR(0xc0050000, REG_14, bpf_trampoline_enter(p));
-	/* ltgr %r7,%r2 */
-	EMIT4(0xb9020000, REG_7, REG_2);
+	/* ltgr %enter,%r2 */
+	EMIT4(0xb9020000, REG_ENTER, REG_2);
 	/* brcl 8,skip */
 	patch = jit->prg;
 	EMIT6_PCREL_RILC(0xc0040000, 8, 0);
@@ -2645,8 +2664,8 @@ static int invoke_bpf_prog(struct bpf_tramp_jit *tjit,
 
 	/* %r2 = p */
 	load_imm64(jit, REG_2, (u64)p);
-	/* lgr %r3,%r7 */
-	EMIT4(0xb9040000, REG_3, REG_7);
+	/* lgr %r3,%enter */
+	EMIT4(0xb9040000, REG_3, REG_ENTER);
 	/* la %r4,run_ctx_off(%r15) */
 	EMIT4_DISP(0x41000000, REG_4, REG_15, tjit->run_ctx_off);
 	/* brasl %r14,__bpf_prog_exit */
@@ -2685,8 +2704,19 @@ static int alloc_stack(struct bpf_tramp_jit *tjit, size_t size)
 	return stack_offset;
 }
 
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_R7_ARG__
+/* ABI uses %r2 - %r7 for parameter passing. */
+#define MAX_NR_REG_ARGS 6
+#else
 /* ABI uses %r2 - %r6 for parameter passing. */
 #define MAX_NR_REG_ARGS 5
+#endif
+
+/* Return the BPF register that is mapped to %r(2 + n). */
+static int tramp_gpr(int n)
+{
+	return n < 5 ? BPF_REG_1 + n : BPF_REG_AX;
+}
 
 /* The "L" field of the "mvc" instruction is 8 bits. */
 #define MAX_MVC_SIZE 256
@@ -2790,11 +2820,11 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	/* stmg %r2,%rN,fwd_reg_args_off(%r15) */
 	if (nr_reg_args)
 		EMIT6_DISP_LH(0xeb000000, 0x0024, REG_2,
-			      REG_2 + (nr_reg_args - 1), REG_15,
+			      tramp_gpr(nr_reg_args - 1), REG_15,
 			      tjit->reg_args_off);
 	for (i = 0, j = 0; i < m->nr_args; i++) {
 		if (i < MAX_NR_REG_ARGS)
-			arg = REG_2 + i;
+			arg = tramp_gpr(i);
 		else
 			arg = tjit->orig_stack_args_off +
 			      (i - MAX_NR_REG_ARGS) * sizeof(u64);
@@ -2824,8 +2854,8 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 			j += 2;
 		}
 	}
-	/* stmg %r7,%r8,r7_r8_off(%r15) */
-	EMIT6_DISP_LH(0xeb000000, 0x0024, REG_7, REG_8, REG_15,
+	/* stmg %save_lo,%save_hi,r7_r8_off(%r15) */
+	EMIT6_DISP_LH(0xeb000000, 0x0024, REG_SAVE_LO, REG_SAVE_HI, REG_15,
 		      tjit->r7_r8_off);
 	/* stg %r14,r14_off(%r15) */
 	EMIT6_DISP_LH(0xe3000000, 0x0024, REG_14, REG_0, REG_15, tjit->r14_off);
@@ -2913,7 +2943,7 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 		/* lmg %r2,%rN,reg_args_off(%r15) */
 		if (nr_reg_args)
 			EMIT6_DISP_LH(0xeb000000, 0x0004, REG_2,
-				      REG_2 + (nr_reg_args - 1), REG_15,
+				      tramp_gpr(nr_reg_args - 1), REG_15,
 				      tjit->reg_args_off);
 		/* mvc stack_args_off(N,%r15),orig_stack_args_off(%r15) */
 		if (nr_stack_args)
@@ -2981,14 +3011,14 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	/* lmg %r2,%rN,reg_args_off(%r15) */
 	if ((flags & BPF_TRAMP_F_RESTORE_REGS) && nr_reg_args)
 		EMIT6_DISP_LH(0xeb000000, 0x0004, REG_2,
-			      REG_2 + (nr_reg_args - 1), REG_15,
+			      tramp_gpr(nr_reg_args - 1), REG_15,
 			      tjit->reg_args_off);
 	/* lgr %r1,%r8 */
 	if (!(flags & BPF_TRAMP_F_SKIP_FRAME) &&
 	    (flags & BPF_TRAMP_F_ORIG_STACK))
 		EMIT4(0xb9040000, REG_1, REG_8);
-	/* lmg %r7,%r8,r7_r8_off(%r15) */
-	EMIT6_DISP_LH(0xeb000000, 0x0004, REG_7, REG_8, REG_15,
+	/* lmg %save_lo,%save_hi,r7_r8_off(%r15) */
+	EMIT6_DISP_LH(0xeb000000, 0x0004, REG_SAVE_LO, REG_SAVE_HI, REG_15,
 		      tjit->r7_r8_off);
 	/* lg %r14,r14_off(%r15) */
 	EMIT6_DISP_LH(0xe3000000, 0x0004, REG_14, REG_0, REG_15, tjit->r14_off);

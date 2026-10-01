@@ -164,15 +164,21 @@ SYM_CODE_END(ftrace_shared_hotpatch_trampoline_exrl)
 
 #ifdef CONFIG_RETHOOK
 
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_R7_ARG__
+#define RH_SP %r8
+#else
+#define RH_SP %r7
+#endif
+
 SYM_CODE_START(arch_rethook_trampoline)
 	stg	%r14,(__SF_GPRS+8*8)(%r15)
 	lay	%r15,-STACK_FRAME_SIZE_PTREGS(%r15)
 	stmg	%r0,%r14,STACK_PTREGS_GPRS(%r15)
 
 	# store original stack pointer in backchain and pt_regs
-	lay	%r7,STACK_FRAME_SIZE_PTREGS(%r15)
-	stg	%r7,__SF_BACKCHAIN(%r15)
-	stg	%r7,STACK_PTREGS_GPRS+(15*8)(%r15)
+	lay	RH_SP,STACK_FRAME_SIZE_PTREGS(%r15)
+	stg	RH_SP,__SF_BACKCHAIN(%r15)
+	stg	RH_SP,STACK_PTREGS_GPRS+(15*8)(%r15)
 
 	# store full psw
 	epsw	%r2,%r3
@@ -184,7 +190,7 @@ SYM_CODE_START(arch_rethook_trampoline)
 	lay	%r2,STACK_PTREGS(%r15)
 	brasl	%r14,arch_rethook_trampoline_callback
 
-	mvc	__SF_EMPTY(16,%r7),STACK_PTREGS_PSW(%r15)
+	mvc	__SF_EMPTY(16,RH_SP),STACK_PTREGS_PSW(%r15)
 	lmg	%r0,%r15,STACK_PTREGS_GPRS(%r15)
 	lpswe	__SF_EMPTY(%r15)
 SYM_CODE_END(arch_rethook_trampoline)
