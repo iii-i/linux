@@ -1194,6 +1194,9 @@ struct bpf_prog_offload {
 	u32			jited_len;
 };
 
+/* The argument is a struct or a union. */
+#define BTF_FMODEL_STRUCT_ARG		BIT(0)
+
 /* The argument is signed. */
 #define BTF_FMODEL_SIGNED_ARG		BIT(1)
 

@@ -2712,15 +2712,59 @@ static int alloc_stack(struct bpf_tramp_jit *tjit, size_t size)
 #define MAX_NR_REG_ARGS 5
 #endif
 
+/* The "L" field of the "mvc" instruction is 8 bits. */
+#define MAX_MVC_SIZE 256
+
 /* Return the BPF register that is mapped to %r(2 + n). */
 static int tramp_gpr(int n)
 {
 	return n < 5 ? BPF_REG_1 + n : BPF_REG_AX;
 }
 
-/* The "L" field of the "mvc" instruction is 8 bits. */
-#define MAX_MVC_SIZE 256
-#define MAX_NR_STACK_ARGS (MAX_MVC_SIZE / sizeof(u64))
+/*
+ * Return the number of GPRs that argument i occupies: 2 if it is passed by
+ * value in a register pair, otherwise 1, where arguments of more than 8
+ * bytes are passed by reference.
+ */
+static int tramp_arg_nr_regs(const struct btf_func_model *m, int i)
+{
+	if (m->arg_size[i] <= 8)
+		return 1;
+	if (m->arg_flags[i] & BTF_FMODEL_STRUCT_ARG)
+		return IS_ENABLED(__S390_EXPERIMENTAL_KERNEL_ABI_STRUCT_ARG__) ? 2 : 1;
+	return IS_ENABLED(__S390_EXPERIMENTAL_KERNEL_ABI_INT128__) ? 2 : 1;
+}
+
+/*
+ * Assign the arguments to GPRs (arg_reg[i] >= 0, relative to %r2) or to the
+ * stack argument area (arg_reg[i] < 0, at arg_stack_off[i]).  An argument
+ * that does not fit into the remaining GPRs goes to the stack whole, and
+ * later arguments may still use the remaining GPRs.
+ */
+static void tramp_assign_args(const struct btf_func_model *m, int *arg_reg,
+			      int *arg_stack_off, int *nr_reg_args,
+			      int *stack_args_size)
+{
+	int i, k, n = 0, first, stack = 0;
+
+	for (i = 0; i < m->nr_args; i++) {
+		k = tramp_arg_nr_regs(m, i);
+		first = n;
+		if (k == 2 &&
+		    IS_ENABLED(__S390_EXPERIMENTAL_KERNEL_ABI_EVEN_PAIRS__))
+			first = round_up(n, 2);
+		if (first + k <= MAX_NR_REG_ARGS) {
+			arg_reg[i] = first;
+			n = first + k;
+		} else {
+			arg_reg[i] = -1;
+			arg_stack_off[i] = stack;
+			stack += k * sizeof(u64);
+		}
+	}
+	*nr_reg_args = n;
+	*stack_args_size = stack;
+}
 
 /* -mfentry generates a 6-byte nop on s390x. */
 #define S390X_PATCH_SIZE 6
@@ -2735,17 +2779,18 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	struct bpf_tramp_nodes *fmod_ret = &tnodes[BPF_TRAMP_MODIFY_RETURN];
 	struct bpf_tramp_nodes *fentry = &tnodes[BPF_TRAMP_FENTRY];
 	struct bpf_tramp_nodes *fexit = &tnodes[BPF_TRAMP_FEXIT];
-	int nr_bpf_args, nr_reg_args, nr_stack_args;
+	int arg_reg[MAX_BPF_FUNC_ARGS], arg_stack_off[MAX_BPF_FUNC_ARGS];
+	int nr_bpf_args, nr_reg_args, stack_args_size;
 	int cookie_cnt, cookie_off, fsession_cnt;
 	struct bpf_jit *jit = &tjit->common;
-	int arg, bpf_arg_off;
+	int arg, bpf_arg_off, last;
 	u64 func_meta;
 	int i, j;
 
 	/* Support as many stack arguments as "mvc" instruction can handle. */
-	nr_reg_args = min_t(int, m->nr_args, MAX_NR_REG_ARGS);
-	nr_stack_args = m->nr_args - nr_reg_args;
-	if (nr_stack_args > MAX_NR_STACK_ARGS)
+	tramp_assign_args(m, arg_reg, arg_stack_off, &nr_reg_args,
+			  &stack_args_size);
+	if (stack_args_size > MAX_MVC_SIZE)
 		return -ENOTSUPP;
 
 	/* Return to %r14 in the struct_ops case. */
@@ -2760,7 +2805,8 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	 * smaller are packed into 1 or 2 registers; larger arguments are
 	 * passed via pointers.
 	 * In s390x ABI, arguments that are 8 bytes or smaller are packed into
-	 * a register; larger arguments are passed via pointers.
+	 * a register; larger arguments are passed via pointers, unless the
+	 * experimental calling convention passes them in register pairs.
 	 * We need to deal with this difference.
 	 */
 	nr_bpf_args = 0;
@@ -2786,7 +2832,7 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	 */
 	tjit->stack_size = STACK_FRAME_OVERHEAD;
 	tjit->backchain_off = tjit->stack_size - sizeof(u64);
-	tjit->stack_args_off = alloc_stack(tjit, nr_stack_args * sizeof(u64));
+	tjit->stack_args_off = alloc_stack(tjit, stack_args_size);
 	tjit->reg_args_off = alloc_stack(tjit, nr_reg_args * sizeof(u64));
 	cookie_off = alloc_stack(tjit, cookie_cnt * sizeof(u64));
 	tjit->ip_off = alloc_stack(tjit, sizeof(u64));
@@ -2823,14 +2869,13 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 			      tramp_gpr(nr_reg_args - 1), REG_15,
 			      tjit->reg_args_off);
 	for (i = 0, j = 0; i < m->nr_args; i++) {
-		if (i < MAX_NR_REG_ARGS)
-			arg = tramp_gpr(i);
+		if (arg_reg[i] >= 0)
+			arg = tramp_gpr(arg_reg[i]);
 		else
-			arg = tjit->orig_stack_args_off +
-			      (i - MAX_NR_REG_ARGS) * sizeof(u64);
+			arg = tjit->orig_stack_args_off + arg_stack_off[i];
 		bpf_arg_off = tjit->bpf_args_off + j * sizeof(u64);
 		if (m->arg_size[i] <= 8) {
-			if (i < MAX_NR_REG_ARGS)
+			if (arg_reg[i] >= 0)
 				/* stg %arg,bpf_arg_off(%r15) */
 				EMIT6_DISP_LH(0xe3000000, 0x0024, arg,
 					      REG_0, REG_15, bpf_arg_off);
@@ -2839,8 +2884,42 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 				_EMIT6(0xd207f000 | bpf_arg_off,
 				       0xf000 | arg);
 			j += 1;
+		} else if (tramp_arg_nr_regs(m, i) == 2) {
+			if (arg_reg[i] >= 0) {
+				/*
+				 * The last register holds the remaining
+				 * bytes right-justified; restore the memory
+				 * image.
+				 */
+				last = m->arg_size[i] - 8;
+				if (last == 8) {
+					/* stmg %arg,%arg+1,bpf_arg_off(%r15) */
+					EMIT6_DISP_LH(0xeb000000, 0x0024, arg,
+						      tramp_gpr(arg_reg[i] + 1),
+						      REG_15, bpf_arg_off);
+				} else {
+					/* stg %arg,bpf_arg_off(%r15) */
+					EMIT6_DISP_LH(0xe3000000, 0x0024, arg,
+						      REG_0, REG_15,
+						      bpf_arg_off);
+					/* sllg %r1,%arg+1,(8-last)*8 */
+					EMIT6_DISP_LH(0xeb000000, 0x000d,
+						      REG_1,
+						      tramp_gpr(arg_reg[i] + 1),
+						      REG_0, (8 - last) * 8);
+					/* stg %r1,bpf_arg_off+8(%r15) */
+					EMIT6_DISP_LH(0xe3000000, 0x0024,
+						      REG_1, REG_0, REG_15,
+						      bpf_arg_off + 8);
+				}
+			} else {
+				/* mvc bpf_arg_off(16,%r15),arg(%r15) */
+				_EMIT6(0xd20ff000 | bpf_arg_off,
+				       0xf000 | arg);
+			}
+			j += 2;
 		} else {
-			if (i < MAX_NR_REG_ARGS) {
+			if (arg_reg[i] >= 0) {
 				/* mvc bpf_arg_off(16,%r15),0(%arg) */
 				_EMIT6(0xd20ff000 | bpf_arg_off,
 				       reg2hex[arg] << 12);
@@ -2946,9 +3025,9 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 				      tramp_gpr(nr_reg_args - 1), REG_15,
 				      tjit->reg_args_off);
 		/* mvc stack_args_off(N,%r15),orig_stack_args_off(%r15) */
-		if (nr_stack_args)
+		if (stack_args_size)
 			_EMIT6(0xd200f000 |
-				       (nr_stack_args * sizeof(u64) - 1) << 16 |
+				       (stack_args_size - 1) << 16 |
 				       tjit->stack_args_off,
 			       0xf000 | tjit->orig_stack_args_off);
 		/* mvc tail_call_cnt(4,%r15),tccnt_off(%r15) */
