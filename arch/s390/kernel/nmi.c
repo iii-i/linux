@@ -485,11 +485,13 @@ void notrace s390_do_machine_check(struct pt_regs *regs)
 	 * because they refer to host conditions only.
 	 */
 	mcck_dam_code = (mci.val & MCIC_SUBCLASS_MASK);
+#if IS_ENABLED(CONFIG_KVM)
 	if (test_cpu_flag(CIF_MCCK_GUEST) &&
 	(mcck_dam_code & MCCK_CODE_NO_GUEST) != mcck_dam_code) {
 		/* Set sie return code for host's later handling */
 		((struct stack_frame *)regs->gprs[15])->sie_return = SIE64_RETURN_MCCK;
 	}
+#endif
 	clear_cpu_flag(CIF_MCCK_GUEST);
 
 	if (mcck_pending)

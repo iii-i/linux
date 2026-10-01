@@ -30,7 +30,11 @@ static struct kvm_s390_sie_block *sie_block(struct pt_regs *regs)
 	if (!stack)
 		return NULL;
 
+#if IS_ENABLED(CONFIG_KVM)
 	return (struct kvm_s390_sie_block *)stack->sie_control_block;
+#else
+	return NULL;
+#endif
 }
 
 static bool is_in_guest(struct pt_regs *regs)

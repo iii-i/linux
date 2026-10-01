@@ -63,6 +63,7 @@ int main(void)
 	OFFSET(__SF_BACKCHAIN, stack_frame, back_chain);
 	OFFSET(__SF_GPRS, stack_frame, gprs);
 	OFFSET(__SF_EMPTY, stack_frame, empty[0]);
+#if IS_ENABLED(CONFIG_KVM)
 	OFFSET(__SF_SIE_CONTROL, stack_frame, sie_control_block);
 	OFFSET(__SF_SIE_SAVEAREA, stack_frame, sie_savearea);
 	OFFSET(__SF_SIE_RETURN, stack_frame, sie_return);
@@ -70,6 +71,7 @@ int main(void)
 	OFFSET(__SF_SIE_CONTROL_PHYS, stack_frame, sie_control_block_phys);
 	OFFSET(__SF_SIE_GUEST_ASCE, stack_frame, sie_guest_asce);
 	OFFSET(__SF_SIE_IRQ, stack_frame, sie_irq);
+#endif
 	DEFINE(STACK_FRAME_OVERHEAD, sizeof(struct stack_frame));
 	BLANK();
 	OFFSET(__SFUSER_BACKCHAIN, stack_frame_user, back_chain);

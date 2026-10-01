@@ -464,7 +464,11 @@ static void jit_fill_hole(void *area, unsigned int size)
  * the BPF stack and for the next frame.
  */
 struct prog_frame {
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_NO_RSA__
+	u64 unused[3];
+#else
 	u64 unused[8];
+#endif
 	/* BPF stack starts here and grows towards 0 */
 	u32 tail_call_cnt;
 	u32 pad;

@@ -76,7 +76,11 @@
 #define GPR_SIZE	8
 #define CR_SIZE		8
 
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_NO_RSA__
+#define STACK_FRAME_OVERHEAD	120	 /* size of minimum stack frame */
+#else
 #define STACK_FRAME_OVERHEAD	160	 /* size of minimum stack frame */
+#endif
 
 #define PSW_MASK_PER		_AC(0x4000000000000000, UL)
 #define PSW_MASK_DAT		_AC(0x0400000000000000, UL)

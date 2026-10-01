@@ -56,6 +56,20 @@ static inline bool on_stack(struct stack_info *info,
  * Stack layout of a C stack frame.
  * Kernel uses the packed stack layout (-mpacked-stack).
  */
+#ifdef __S390_EXPERIMENTAL_KERNEL_ABI_NO_RSA__
+/*
+ * The experimental no-rsa calling convention drops the 5 words that the
+ * packed stack layout does not use, which __sie64a() needs.
+ */
+#if IS_ENABLED(CONFIG_KVM)
+#error "KVM needs the full register save area"
+#endif
+struct stack_frame {
+	unsigned long empty[4];
+	unsigned long gprs[10];
+	unsigned long back_chain;
+};
+#else
 struct stack_frame {
 	union {
 		unsigned long empty[9];
@@ -72,6 +86,7 @@ struct stack_frame {
 	unsigned long gprs[10];
 	unsigned long back_chain;
 };
+#endif
 
 /*
  * Unlike current_stack_pointer which simply contains the current value of %r15
