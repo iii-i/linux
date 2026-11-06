@@ -92,4 +92,7 @@ static inline void __iowrite64_copy(void __iomem *to, const void *from,
 
 #include <asm-generic/io.h>
 
+void *arch_memremap_wb(phys_addr_t addr, size_t size, unsigned long flags);
+#define arch_memremap_wb arch_memremap_wb
+
 #endif
