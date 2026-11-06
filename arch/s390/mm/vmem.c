@@ -568,6 +568,17 @@ int vmem_add_mapping(unsigned long start, unsigned long size)
 	return ret;
 }
 
+/* Without MIO, ioremap() returns PCI cookies, so map into the identity mapping like DCSS. */
+void *arch_memremap_wb(phys_addr_t addr, size_t size, unsigned long flags)
+{
+	unsigned long start = round_down(addr, PAGE_SIZE);
+	unsigned long end = PAGE_ALIGN(addr + size);
+
+	if (vmem_add_mapping(start, end - start))
+		return NULL;
+	return __va(addr);
+}
+
 /*
  * Allocate new or return existing page-table entry, but do not map it
  * to any physical address. If missing, allocate segment- and region-

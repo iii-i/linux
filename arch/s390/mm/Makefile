@@ -13,5 +13,6 @@ obj-$(CONFIG_DEBUG_VIRTUAL)	+= physaddr.o
 obj-$(CONFIG_HUGETLB_PAGE)	+= hugetlbpage.o
 obj-$(CONFIG_PTDUMP)		+= dump_pagetables.o
 obj-$(CONFIG_PFAULT)		+= pfault.o
+obj-$(CONFIG_ARCH_HAS_PMEM_API)	+= pmem.o
 
 obj-$(subst m,y,$(CONFIG_KVM))	+= gmap_helpers.o
