@@ -171,7 +171,7 @@ config PMEM_LEGACY_DEVICE
 
 config PMEM_LEGACY
 	tristate "Support non-standard NVDIMMs and ADR protected memory"
-	depends on X86
+	depends on X86 || S390
 	depends on PHYS_ADDR_T_64BIT
 	depends on BLK_DEV
 	default X86_PMEM_LEGACY
@@ -180,7 +180,8 @@ config PMEM_LEGACY
 	select LIBNVDIMM
 	help
 	  Treat memory marked using the non-standard e820 type of 12 as used
-	  by the Intel Sandy Bridge-EP reference BIOS as protected memory.
+	  by the Intel Sandy Bridge-EP reference BIOS, or using the
+	  'memmap=nn[KMG]!ss[KMG]' kernel command line, as protected memory.
 	  The kernel will offer these regions to the 'pmem' driver so
 	  they can be used for persistent storage.
 
