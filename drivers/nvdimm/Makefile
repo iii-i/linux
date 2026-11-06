@@ -2,7 +2,8 @@
 obj-$(CONFIG_LIBNVDIMM) += libnvdimm.o
 obj-$(CONFIG_BLK_DEV_PMEM) += nd_pmem.o
 obj-$(CONFIG_ND_BTT) += nd_btt.o
-obj-$(CONFIG_X86_PMEM_LEGACY) += nd_e820.o
+obj-$(CONFIG_PMEM_LEGACY) += nd_e820.o
+obj-$(CONFIG_PMEM_LEGACY_DEVICE) += pmem_legacy.o
 obj-$(CONFIG_OF_PMEM) += of_pmem.o
 obj-$(CONFIG_VIRTIO_PMEM) += virtio_pmem.o nd_virtio.o
 obj-$(CONFIG_RAMDAX) += ramdax.o
