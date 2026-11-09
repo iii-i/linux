@@ -24,20 +24,34 @@
 #include <asm/sclp.h>
 #include <asm/maccess.h>
 #include <asm/fpu.h>
+#include <asm/physmem_info.h>
 
 #define PTR_ADD(x, y) (((char *) (x)) + ((unsigned long) (y)))
 #define PTR_SUB(x, y) (((char *) (x)) - ((unsigned long) (y)))
 #define PTR_DIFF(x, y) ((unsigned long)(((char *) (x)) - ((unsigned long) (y))))
 
-static struct memblock_region oldmem_region;
+static struct memblock_region excluded_regions[2];
 
-static struct memblock_type oldmem_type = {
-	.cnt = 1,
-	.max = 1,
-	.total_size = 0,
-	.regions = &oldmem_region,
-	.name = "oldmem",
+static struct memblock_type excluded_type = {
+	.max = ARRAY_SIZE(excluded_regions),
+	.regions = excluded_regions,
+	.name = "excluded",
 };
+
+static void exclude_from_dump(phys_addr_t base, phys_addr_t size)
+{
+	struct memblock_region *rgn = &excluded_regions[excluded_type.cnt];
+
+	/* __next_mem_range() expects the regions sorted by base. */
+	if (excluded_type.cnt && rgn[-1].base > base) {
+		rgn[0] = rgn[-1];
+		rgn--;
+	}
+	rgn->base = base;
+	rgn->size = size;
+	excluded_type.cnt++;
+	excluded_type.total_size += size;
+}
 
 struct save_area {
 	struct list_head list;
@@ -486,7 +500,7 @@ static int get_mem_chunk_cnt(void)
 	int cnt = 0;
 	u64 idx;
 
-	for_each_physmem_range(idx, &oldmem_type, NULL, NULL)
+	for_each_physmem_range(idx, &excluded_type, NULL, NULL)
 		cnt++;
 	return cnt;
 }
@@ -515,7 +529,7 @@ static void loads_init(Elf64_Phdr *phdr, bool os_info_has_vm)
 
 	if (os_info_has_vm)
 		old_identity_base = os_info_old_value(OS_INFO_IDENTITY_BASE);
-	for_each_physmem_range(idx, &oldmem_type, &start, &end) {
+	for_each_physmem_range(idx, &excluded_type, &start, &end) {
 		fill_ptload(phdr, start, old_identity_base + start,
 			    end - start);
 		phdr++;
@@ -614,6 +628,7 @@ static size_t get_elfcorehdr_size(int phdr_count)
 int elfcorehdr_alloc(unsigned long long *addr, unsigned long long *size)
 {
 	Elf64_Phdr *phdr_notes, *phdr_loads, *phdr_text;
+	unsigned long memmap_start, memmap_size;
 	int mem_chunk_cnt, phdr_text_cnt;
 	size_t alloc_size;
 	void *ptr, *hdr;
@@ -627,11 +642,11 @@ int elfcorehdr_alloc(unsigned long long *addr, unsigned long long *size)
 		return -ENODEV;
 
 	/* For kdump, exclude previous crashkernel memory */
-	if (oldmem_data.start) {
-		oldmem_region.base = oldmem_data.start;
-		oldmem_region.size = oldmem_data.size;
-		oldmem_type.total_size = oldmem_data.size;
-	}
+	if (oldmem_data.start)
+		exclude_from_dump(oldmem_data.start, oldmem_data.size);
+	/* memmap= persistent memory holds user data, not kernel memory. */
+	if (get_physmem_reserved(RR_MEMMAP, &memmap_start, &memmap_size))
+		exclude_from_dump(memmap_start, memmap_size);
 
 	mem_chunk_cnt = get_mem_chunk_cnt();
 	phdr_text_cnt = os_info_has_vm() ? 1 : 0;
