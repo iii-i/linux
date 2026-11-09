@@ -15,6 +15,9 @@ KBUILD_CFLAGS_MODULE += -fPIC
 KBUILD_CPPFLAGS	+= -m64
 KBUILD_CFLAGS	+= -fPIC
 LDFLAGS_vmlinux	:= $(call ld-option,-no-pie)
+ifneq ($(S390_KABI_TEXT_ORDER),)
+LDFLAGS_vmlinux	+= --symbol-ordering-file=$(S390_KABI_TEXT_ORDER) --no-warn-symbol-ordering
+endif
 extra_tools	:= relocs
 aflags_dwarf	:= -Wa,-gdwarf-2
 KBUILD_AFLAGS_DECOMPRESSOR := $(CLANG_FLAGS) -m64 -D__ASSEMBLY__
