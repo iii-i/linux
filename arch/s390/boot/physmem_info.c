@@ -252,8 +252,9 @@ void physmem_free(enum reserved_range_type type)
 	physmem_info.reserved[type].end = 0;
 }
 
-static bool __physmem_alloc_intersects(unsigned long addr, unsigned long size,
-				       unsigned long *intersection_start)
+bool physmem_reserved_intersects(unsigned long addr, unsigned long size,
+				 unsigned long *intersection_start,
+				 enum reserved_range_type *intersection_type)
 {
 	unsigned long res_addr, res_size;
 	int t;
@@ -263,10 +264,17 @@ static bool __physmem_alloc_intersects(unsigned long addr, unsigned long size,
 			continue;
 		if (intersects(addr, size, res_addr, res_size)) {
 			*intersection_start = res_addr;
+			if (intersection_type)
+				*intersection_type = t;
 			return true;
 		}
 	}
-	return ipl_report_certs_intersects(addr, size, intersection_start);
+	if (ipl_report_certs_intersects(addr, size, intersection_start)) {
+		if (intersection_type)
+			*intersection_type = RR_IPLREPORT;
+		return true;
+	}
+	return false;
 }
 
 static unsigned long __physmem_alloc_range(unsigned long size, unsigned long align,
@@ -291,7 +299,7 @@ static unsigned long __physmem_alloc_range(unsigned long size, unsigned long ali
 			nranges--;
 			continue;
 		}
-		if (__physmem_alloc_intersects(addr, size, &intersection_start)) {
+		if (physmem_reserved_intersects(addr, size, &intersection_start, NULL)) {
 			pos = intersection_start;
 			continue;
 		}
